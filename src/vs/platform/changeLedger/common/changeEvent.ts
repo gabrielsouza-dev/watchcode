@@ -56,7 +56,8 @@ export interface ChangeEvent {
 	readonly fileUri: string;
 	/** Ausente quando não houve baseline: o evento é parcial. */
 	readonly beforeHash?: string;
-	readonly afterHash: string;
+	/** Ausente quando o arquivo foi removido: o evento registra a remoção. */
+	readonly afterHash?: string;
 	/** Presente quando conhecido; o diff é recalculado de qualquer forma. */
 	readonly linesChanged?: readonly ChangeLineRange[];
 	/** Epoch em milissegundos. */

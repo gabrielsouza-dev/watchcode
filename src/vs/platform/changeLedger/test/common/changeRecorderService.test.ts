@@ -15,7 +15,7 @@ import { InMemoryFileSystemProvider } from '../../../files/common/inMemoryFilesy
 import { NullLogService } from '../../../log/common/log.js';
 import { IWorkspaceContextService } from '../../../workspace/common/workspace.js';
 import { ChangeLedgerService, IChangeLedgerService } from '../../common/changeLedgerService.js';
-import { ChangeRecorderService, IChangeRecorderService, WorkspaceHeadReader } from '../../common/changeRecorderService.js';
+import { ChangeRecorderService, IChangeRecorderService, ObservedChangeKind, WorkspaceHeadReader } from '../../common/changeRecorderService.js';
 import { computeContentHash } from '../../common/snapshotHash.js';
 
 const WORKSPACE_FOLDER = URI.from({ scheme: Schemas.inMemory, path: '/workspace' });
@@ -45,11 +45,12 @@ suite('changeRecorderService', () => {
 			: new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService);
 	}
 
-	function observedChange(overrides: Partial<{ fileUri: string; attribution: 'hook' | 'observed' }> = {}) {
+	function observedChange(overrides: Partial<{ fileUri: string; attribution: 'hook' | 'observed'; kind: ObservedChangeKind; folderUri: URI }> = {}) {
 		return {
 			fileUri: FILE_URI,
 			sessionId: 'S-0001',
 			attribution: 'observed' as const,
+			kind: 'updated' as const,
 			timestamp: TIMESTAMP,
 			...overrides,
 		};
@@ -178,5 +179,50 @@ suite('changeRecorderService', () => {
 		const second = await recorder.recordChange(observedChange());
 
 		assert.notStrictEqual(first.id, second.id);
+	});
+
+	test('a remoção é gravada sem "depois", usando a última sombra como "antes"', async () => {
+		const recorder = createRecorder();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('antes'));
+		await recorder.recordChange(observedChange());
+
+		await fileService.del(resource(FILE_URI));
+		const removal = await recorder.recordChange(observedChange({ kind: 'deleted' }));
+
+		assert.deepStrictEqual({
+			afterHash: removal.afterHash,
+			beforeHash: removal.beforeHash,
+		}, {
+			afterHash: undefined,
+			beforeHash: await computeContentHash(VSBuffer.fromString('antes')),
+		});
+	});
+
+	test('a remoção de um arquivo que nunca existiu não rejeita', async () => {
+		const removal = await createRecorder().recordChange(observedChange({ kind: 'deleted' }));
+
+		assert.deepStrictEqual({
+			afterHash: removal.afterHash,
+			beforeHash: removal.beforeHash,
+		}, {
+			afterHash: undefined,
+			beforeHash: undefined,
+		});
+	});
+
+	test('a pasta recebida define onde o caminho relativo é resolvido', async () => {
+		const secondFolder = URI.from({ scheme: Schemas.inMemory, path: '/outra' });
+		await fileService.writeFile(URI.joinPath(secondFolder, FILE_URI), VSBuffer.fromString('na segunda pasta'));
+
+		const environmentService = { workspaceStorageHome: URI.from({ scheme: Schemas.inMemory, path: '/storage' }) } as unknown as IEnvironmentService;
+		const workspaceContextService = {
+			getWorkspace: () => ({ id: 'workspace-1', folders: [{ uri: WORKSPACE_FOLDER }, { uri: secondFolder }] }),
+		} as unknown as IWorkspaceContextService;
+		const recorder = new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService);
+
+		const event = await recorder.recordChange(observedChange({ folderUri: secondFolder }));
+
+		assert.strictEqual(event.afterHash, await computeContentHash(VSBuffer.fromString('na segunda pasta')));
 	});
 });

@@ -1,0 +1,182 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+// allow-any-unicode-comment-file -- comentarios em portugues usam acentuacao.
+
+import assert from 'assert';
+import { timeout } from '../../../../base/common/async.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
+import { Schemas } from '../../../../base/common/network.js';
+import { URI } from '../../../../base/common/uri.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
+import { IEnvironmentService } from '../../../environment/common/environment.js';
+import { FileService } from '../../../files/common/fileService.js';
+import { InMemoryFileSystemProvider } from '../../../files/common/inMemoryFilesystemProvider.js';
+import { NullLogService } from '../../../log/common/log.js';
+import { IWorkspaceContextService } from '../../../workspace/common/workspace.js';
+import { ChangeLedgerService, IChangeLedgerService } from '../../common/changeLedgerService.js';
+import { ChangeRecorderService, IChangeRecorderService } from '../../common/changeRecorderService.js';
+import { computeContentHash } from '../../common/snapshotHash.js';
+import { WorkspaceWatcherService } from '../../common/workspaceWatcherService.js';
+
+const WORKSPACE_FOLDER = URI.from({ scheme: Schemas.inMemory, path: '/workspace' });
+const OUTSIDE_FOLDER = URI.from({ scheme: Schemas.inMemory, path: '/fora' });
+const FILE_URI = 'src/vs/base/a.ts';
+
+/** O provider em memória avisa as mudanças num timer curto. */
+const SETTLED = 30;
+
+/** Recurso de um arquivo dentro do workspace em memória. */
+function resource(fileUri: string): URI {
+	return URI.joinPath(WORKSPACE_FOLDER, fileUri);
+}
+
+suite('workspaceWatcherService', () => {
+
+	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
+
+	let fileService: FileService;
+	let ledger: IChangeLedgerService;
+	let service: WorkspaceWatcherService;
+
+	setup(() => {
+		fileService = disposables.add(new FileService(new NullLogService()));
+		disposables.add(fileService.registerProvider(Schemas.inMemory, disposables.add(new InMemoryFileSystemProvider())));
+
+		const environmentService = { workspaceStorageHome: URI.from({ scheme: Schemas.inMemory, path: '/storage' }) } as unknown as IEnvironmentService;
+		const workspaceContextService = {
+			getWorkspace: () => ({ id: 'workspace-1', folders: [{ uri: WORKSPACE_FOLDER }] }),
+		} as unknown as IWorkspaceContextService;
+
+		ledger = new ChangeLedgerService(fileService, environmentService, workspaceContextService);
+
+		const recorder: IChangeRecorderService = new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService);
+
+		service = disposables.add(new WorkspaceWatcherService(fileService, workspaceContextService, recorder, new NullLogService()));
+	});
+
+	test('uma escrita no workspace vira evento observado', async () => {
+		service.start();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
+		await timeout(SETTLED);
+
+		const events = await ledger.readByFile(FILE_URI);
+
+		assert.deepStrictEqual({
+			total: events.length,
+			attribution: events[0]?.attribution,
+			afterHash: events[0]?.afterHash,
+		}, {
+			total: 1,
+			attribution: 'observed',
+			afterHash: await computeContentHash(VSBuffer.fromString('depois')),
+		});
+	});
+
+	test('caminho ignorado não vira evento', async () => {
+		service.start();
+
+		await fileService.writeFile(resource('node_modules/x/y.js'), VSBuffer.fromString('ruido'));
+		await timeout(SETTLED);
+
+		assert.deepStrictEqual(await ledger.readByFile('node_modules/x/y.js'), []);
+	});
+
+	test('caminho fora do workspace não vira evento', async () => {
+		service.start();
+
+		await fileService.writeFile(URI.joinPath(OUTSIDE_FOLDER, FILE_URI), VSBuffer.fromString('fora'));
+		await timeout(SETTLED);
+
+		assert.deepStrictEqual(await ledger.readByFile(FILE_URI), []);
+	});
+
+	test('start duas vezes mantém uma observação só', async () => {
+		service.start();
+		service.start();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
+		await timeout(SETTLED);
+
+		assert.deepStrictEqual({
+			isActive: service.isActive,
+			total: (await ledger.readByFile(FILE_URI)).length,
+		}, {
+			isActive: true,
+			total: 1,
+		});
+	});
+
+	test('depois de stop a escrita não vira evento', async () => {
+		service.start();
+		service.stop();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
+		await timeout(SETTLED);
+
+		assert.deepStrictEqual({
+			isActive: service.isActive,
+			total: (await ledger.readByFile(FILE_URI)).length,
+		}, {
+			isActive: false,
+			total: 0,
+		});
+	});
+
+	test('stop e start voltam a observar', async () => {
+		service.start();
+		service.stop();
+		service.start();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
+		await timeout(SETTLED);
+
+		assert.strictEqual((await ledger.readByFile(FILE_URI)).length, 1);
+	});
+
+	test('a remoção do arquivo vira evento sem "depois"', async () => {
+		service.start();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('antes'));
+		await timeout(SETTLED);
+		await fileService.del(resource(FILE_URI));
+		await timeout(SETTLED);
+
+		const events = await ledger.readByFile(FILE_URI);
+
+		assert.deepStrictEqual({
+			total: events.length,
+			lastAfterHash: events[events.length - 1]?.afterHash,
+		}, {
+			total: 2,
+			lastAfterHash: undefined,
+		});
+	});
+
+	test('escritas próximas entram na mesma sessão', async () => {
+		service.start();
+
+		await fileService.writeFile(resource('a.ts'), VSBuffer.fromString('um'));
+		await timeout(SETTLED);
+		await fileService.writeFile(resource('a.ts'), VSBuffer.fromString('dois'));
+		await timeout(SETTLED);
+
+		const events = await ledger.readByFile('a.ts');
+		const sessions = new Set(events.map(event => event.sessionId));
+
+		assert.deepStrictEqual({ total: events.length, sessions: sessions.size }, { total: 2, sessions: 1 });
+	});
+
+	test('sem pasta no workspace o start não faz nada', () => {
+		const environmentService = { workspaceStorageHome: URI.from({ scheme: Schemas.inMemory, path: '/storage' }) } as unknown as IEnvironmentService;
+		const emptyContext = { getWorkspace: () => ({ id: 'workspace-2', folders: [] }) } as unknown as IWorkspaceContextService;
+		const recorder = new ChangeRecorderService(ledger, fileService, emptyContext, environmentService);
+		const semPasta = disposables.add(new WorkspaceWatcherService(fileService, emptyContext, recorder, new NullLogService()));
+
+		semPasta.start();
+
+		assert.strictEqual(semPasta.isActive, false);
+	});
+});

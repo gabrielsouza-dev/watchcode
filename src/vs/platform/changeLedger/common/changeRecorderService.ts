@@ -19,19 +19,31 @@ import { ShadowStore } from './shadowStore.js';
 
 export const IChangeRecorderService = createDecorator<IChangeRecorderService>('changeRecorderService');
 
+/** O que aconteceu com o arquivo no disco. */
+export type ObservedChangeKind = 'added' | 'updated' | 'deleted';
+
 /**
  * Alteração externa já detectada, à espera de registro.
  *
  * Quem detecta é o watcher (E1-T4); quem resolve o "antes" e grava é o recorder.
  */
 export interface IObservedChange {
-	/** Caminho relativo à raiz do workspace. */
+	/** Caminho relativo à pasta de origem. */
 	readonly fileUri: string;
 	/** Sessão de observação a que a alteração pertence. */
 	readonly sessionId: string;
 	readonly attribution: ChangeEventAttribution;
 	/** Epoch em milissegundos. */
 	readonly timestamp: number;
+	/**
+	 * Pasta do workspace a que o caminho pertence.
+	 *
+	 * É o que faz o caminho relativo apontar para o lugar certo em workspace
+	 * com mais de uma pasta; sem ela, vale a primeira.
+	 */
+	readonly folderUri?: URI;
+	/** O que aconteceu no disco. */
+	readonly kind: ObservedChangeKind;
 }
 
 /**
@@ -46,8 +58,10 @@ export interface IChangeRecorderService {
 	/**
 	 * Registra uma alteração e devolve o evento gravado.
 	 *
-	 * Rejeita quando o arquivo não pode ser lido: sem conteúdo atual não há
-	 * "depois", e um evento sem "depois" não representa alteração nenhuma.
+	 * Rejeita quando um arquivo que deveria existir não pode ser lido: sem
+	 * conteúdo atual não há "depois", e um evento sem "depois" só representa
+	 * remoção. Por isso uma remoção é gravada sem ler o disco, com o "depois"
+	 * ausente.
 	 */
 	recordChange(change: IObservedChange): Promise<ChangeEvent>;
 }
@@ -85,8 +99,10 @@ export class ChangeRecorderService implements IChangeRecorderService {
 	}
 
 	async recordChange(change: IObservedChange): Promise<ChangeEvent> {
-		const content = await this.readFile(change.fileUri);
-		const afterHash = await this.ledger.recordSnapshot(content);
+		const resource = this.resolveResource(change);
+		// Numa remoção não há o que ler: o evento registra que o arquivo saiu.
+		const content = change.kind === 'deleted' ? undefined : await this.readFile(resource);
+		const afterHash = content ? await this.ledger.recordSnapshot(content) : undefined;
 		const baseline = await this.baselineProvider.resolve(change.fileUri);
 
 		const { event } = await this.ledger.record({
@@ -102,22 +118,26 @@ export class ChangeRecorderService implements IChangeRecorderService {
 			status: 'current'
 		});
 
-		await this.shadowStore.put(change.fileUri, content, change.timestamp);
+		if (content) {
+			// A sombra guarda o último conteúdo visto, e é dela que sai o "antes"
+			// se o arquivo voltar. Numa remoção ela fica como estava.
+			await this.shadowStore.put(change.fileUri, content, change.timestamp);
+		}
 
 		return event;
 	}
 
 	/** Lê o conteúdo atual do arquivo observado. */
-	private async readFile(fileUri: string): Promise<VSBuffer> {
-		const content = await this.fileService.readFile(this.resolveResource(fileUri));
+	private async readFile(resource: URI): Promise<VSBuffer> {
+		const content = await this.fileService.readFile(resource);
 
 		return content.value;
 	}
 
 	/** Converte o caminho relativo do evento no recurso do arquivo. */
-	private resolveResource(fileUri: string): URI {
-		const folder = this.workspaceContextService.getWorkspace().folders[0];
+	private resolveResource(change: IObservedChange): URI {
+		const folder = change.folderUri ?? this.workspaceContextService.getWorkspace().folders[0]?.uri;
 
-		return folder ? URI.joinPath(folder.uri, fileUri) : URI.file(fileUri);
+		return folder ? URI.joinPath(folder, change.fileUri) : URI.file(change.fileUri);
 	}
 }
