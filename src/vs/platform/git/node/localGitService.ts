@@ -171,6 +171,16 @@ export class LocalGitService implements ILocalGitService {
 		}
 	}
 
+	async findRepositoryRoot(path: string): Promise<string | undefined> {
+		try {
+			// O próprio git resolve a raiz, subindo a partir do caminho dado.
+			return (await this._exec(generateUuid(), ['rev-parse', '--show-toplevel'], path)).trim();
+		} catch {
+			// Fora de um repositório não é erro para quem pergunta: é a resposta.
+			return undefined;
+		}
+	}
+
 	async fetch(operationId: string, repoPath: string): Promise<void> {
 		await this._exec(operationId, ['fetch'], repoPath);
 	}

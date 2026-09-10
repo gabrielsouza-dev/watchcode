@@ -32,6 +32,13 @@ export interface ILocalGitService {
 	 * `repoPath` é um caminho nativo; `filePath` é relativo à raiz, com `/`.
 	 */
 	show(repoPath: string, filePath: string): Promise<string | undefined>;
+	/**
+	 * Raiz do repositório que contém um caminho, ou `undefined` quando ele não
+	 * está dentro de repositório nenhum.
+	 *
+	 * `path` é um caminho nativo, dentro ou abaixo da raiz procurada.
+	 */
+	findRepositoryRoot(path: string): Promise<string | undefined>;
 	fetch(operationId: string, repoPath: string): Promise<void>;
 	revListCount(repoPath: string, fromRef: string, toRef: string): Promise<number>;
 	cancel(operationId: string): Promise<void>;
