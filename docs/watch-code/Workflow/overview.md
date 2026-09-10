@@ -100,7 +100,7 @@ O caminho do desenvolvedor é:
 
 1. Abre o workspace na IDE.
 2. Abre o **terminal integrado** e roda o agente externo (ex.: `claude`).
-3. **Ativa a observação** pela interface.
+3. **Confere a observação** na barra de status: ela nasce ligada ao abrir o workspace, e o indicador diz se está observando. Desligar é uma decisão pontual, para escrita em massa.
 4. O agente trabalha; a IDE observa, monta a timeline e escreve o `.md`.
 5. O desenvolvedor revisa, registra propostas; o agente lê o `.md`.
 
@@ -256,9 +256,16 @@ O critério é o tipo de acoplamento de cada módulo inútil ao produto:
 | E1-T3 | Baseline do "antes" | Estado anterior por git (`HEAD`) e por store de sombra; regra do evento parcial quando não há baseline | E1-T2 | feito (64 testes no módulo; 2 testes manuais pendentes) |
 | E1-T4 | Watcher do workspace | Observação do disco, detecção de escrita externa, agrupamento por pausa e criação do evento de origem `agent` | E1-T3 | feito (85 testes no módulo; 1 teste manual pendente) |
 | E1-T5 | Controle de observação | Comando e indicador de estado para **ativar/desativar** a observação pela interface; desligado, nenhuma sessão é aberta; estado refletido no status | E1-T4 | feito (92 testes no módulo; 1 teste manual pendente) |
-| E1-T6 | Fechamento da E1 | Um script (sem agente nenhum) altera arquivos e cada alteração aparece no ledger com antes/depois corretos, com a observação ligada | E1-T5 | pendente |
+| E1-T6 | Fechamento da E1 | Um script (sem agente nenhum) altera arquivos e cada alteração aparece no ledger com antes/depois corretos, com a observação ligada | E1-T5 | feito (93 testes no módulo; arnês ponta a ponta em `docs/watch-code/e2e`; 2 defeitos corrigidos) |
 
 **E1 pronta quando:** com a observação ligada, qualquer alteração feita fora da IDE — por agente, script ou terminal — vira um evento com arquivo, origem, horário e snapshots antes/depois corretos.
+
+**Provado na E1-T6:** um script externo, sem agente nenhum, alterou oito arquivos
+com o app aberto e as doze invariantes do ledger passaram — inclusive o antes vindo
+do git `HEAD`, o evento parcial do arquivo novo, o antes vindo da sombra, a remoção
+sem depois, o agrupamento em três sessões e o caminho ignorado que não vira evento.
+A execução encontrou dois defeitos que a suíte inteira não pegava: o git nunca era
+consultado e o "antes" não entrava no store de snapshots. Ambos corrigidos.
 
 ### Etapa E2 — Timeline e navegação
 
@@ -352,7 +359,7 @@ E1 → E2 → E3 → E4 → E5 → E6 → E7
 ## 9. Validação
 
 - **Unidade:** ledger, baseline, agrupamento por pausa, validação do anúncio e geração do `.md` (`npm run test-node`).
-- **Ponta a ponta universal:** um script Node (sem agente nenhum) altera arquivos do workspace e a timeline precisa refletir cada alteração com antes/depois.
+- **Ponta a ponta universal:** um script Node (sem agente nenhum) altera arquivos do workspace e o ledger precisa refletir cada alteração com antes/depois. Executado por `node --experimental-strip-types docs/watch-code/e2e/run-e2e.ts`, que abre o app em perfil isolado, estimula, fecha e confere doze invariantes.
 - **Ponta a ponta com agente:** com hook injetado, as alterações de um turno aparecem agrupadas como uma sessão.
 - **UI:** fork com perfil isolado pela skill `launch` + Playwright (navegação, modos, decorações).
 - **Pipeline:** `npm run compile`, `npm run typecheck-client`, `npm run valid-layers-check`, `npm run eslint`.
