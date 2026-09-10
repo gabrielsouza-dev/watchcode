@@ -185,6 +185,58 @@ suite('changeRecorderService', () => {
 		});
 	});
 
+	test('a entrega repetida da mesma escrita não vira um segundo evento', async () => {
+		const recorder = createRecorder();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
+		const first = await recorder.recordChange(observedChange());
+		// A raiz do workspace é observada por mais de um pedido: a mesma escrita
+		// chega uma segunda vez, e essa repetição não é uma alteração nova.
+		const repeated = await recorder.recordChange(observedChange());
+
+		assert.deepStrictEqual({
+			total: (await ledger.readByFile(FILE_URI)).length,
+			repeatedIsTheSameEvent: repeated.id === first.id,
+		}, {
+			total: 1,
+			repeatedIsTheSameEvent: true,
+		});
+	});
+
+	test('duas entregas simultâneas da mesma escrita não viram dois eventos', async () => {
+		const recorder = createRecorder();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
+
+		// As duas entregas chegam quase juntas: nenhuma delas pode gravar antes de a
+		// outra olhar o que já foi registrado.
+		const [first, second] = await Promise.all([
+			recorder.recordChange(observedChange()),
+			recorder.recordChange(observedChange()),
+		]);
+
+		assert.deepStrictEqual({
+			total: (await ledger.readByFile(FILE_URI)).length,
+			sameEvent: first.id === second.id,
+		}, {
+			total: 1,
+			sameEvent: true,
+		});
+	});
+
+	test('a remoção repetida não vira um segundo evento', async () => {
+		const recorder = createRecorder();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('antes'));
+		await recorder.recordChange(observedChange());
+
+		await fileService.del(resource(FILE_URI));
+		await recorder.recordChange(observedChange({ kind: 'deleted' }));
+		await recorder.recordChange(observedChange({ kind: 'deleted' }));
+
+		assert.strictEqual((await ledger.readByFile(FILE_URI)).length, 2);
+	});
+
 	test('cada alteração recebe um id próprio', async () => {
 		const recorder = createRecorder();
 
@@ -225,6 +277,33 @@ suite('changeRecorderService', () => {
 			afterHash: undefined,
 			beforeHash: undefined,
 		});
+	});
+
+	test('conteúdo que volta a ser o de antes vira evento', async () => {
+		const recorder = createRecorder();
+
+		for (const content of ['a', 'b', 'a']) {
+			await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString(content));
+			await recorder.recordChange(observedChange());
+		}
+
+		assert.strictEqual((await ledger.readByFile(FILE_URI)).length, 3);
+	});
+
+	test('o mesmo caminho em pastas diferentes não é confundido', async () => {
+		const secondFolder = URI.from({ scheme: Schemas.inMemory, path: '/outra' });
+		const environmentService = { workspaceStorageHome: URI.from({ scheme: Schemas.inMemory, path: '/storage' }) } as unknown as IEnvironmentService;
+		const workspaceContextService = {
+			getWorkspace: () => ({ id: 'workspace-1', folders: [{ uri: WORKSPACE_FOLDER }, { uri: secondFolder }] }),
+		} as unknown as IWorkspaceContextService;
+		const recorder = new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService);
+
+		for (const folder of [WORKSPACE_FOLDER, secondFolder]) {
+			await fileService.writeFile(URI.joinPath(folder, FILE_URI), VSBuffer.fromString('igual'));
+			await recorder.recordChange(observedChange({ folderUri: folder }));
+		}
+
+		assert.strictEqual((await ledger.readByFile(FILE_URI)).length, 2);
 	});
 
 	test('a pasta recebida define onde o caminho relativo é resolvido', async () => {

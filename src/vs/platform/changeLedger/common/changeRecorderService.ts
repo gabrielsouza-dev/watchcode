@@ -56,7 +56,12 @@ export interface IChangeRecorderService {
 	readonly _serviceBrand: undefined;
 
 	/**
-	 * Registra uma alteração e devolve o evento gravado.
+	 * Registra uma alteração e devolve o evento que representa o estado atual.
+	 *
+	 * Só grava quando o conteúdo do arquivo é diferente do último evento gravado
+	 * para ele: o sistema de arquivos entrega a mesma escrita mais de uma vez, e
+	 * uma entrega repetida não é uma alteração nova. Nesse caso devolve o evento
+	 * anterior, sem tocar no ledger.
 	 *
 	 * Rejeita quando um arquivo que deveria existir não pode ser lido: sem
 	 * conteúdo atual não há "depois", e um evento sem "depois" só representa
@@ -86,6 +91,12 @@ export class ChangeRecorderService implements IChangeRecorderService {
 	private readonly shadowStore: ShadowStore;
 	private readonly baselineProvider: BaselineProvider;
 
+	/** Último evento gravado por arquivo observado, para reconhecer a escrita repetida. */
+	private readonly lastEvents = new Map<string, ChangeEvent>();
+
+	/** Registro em andamento por arquivo: as entregas da mesma escrita não podem se cruzar. */
+	private readonly recording = new Map<string, Promise<ChangeEvent>>();
+
 	constructor(
 		@IChangeLedgerService private readonly ledger: IChangeLedgerService,
 		@IFileService private readonly fileService: IFileService,
@@ -100,9 +111,40 @@ export class ChangeRecorderService implements IChangeRecorderService {
 
 	async recordChange(change: IObservedChange): Promise<ChangeEvent> {
 		const resource = this.resolveResource(change);
+		const key = resource.toString();
+
+		// As entregas da mesma escrita chegam quase juntas, e cada registro passa por
+		// leituras assíncronas: sem a fila por arquivo a segunda decidiria antes de a
+		// primeira gravar, e as duas entrariam na linha do tempo.
+		const previous = this.recording.get(key) ?? Promise.resolve();
+		const recording = previous.catch(() => undefined).then(() => this.record(resource, change));
+
+		this.recording.set(key, recording);
+
+		try {
+			return await recording;
+		} finally {
+			if (this.recording.get(key) === recording) {
+				this.recording.delete(key);
+			}
+		}
+	}
+
+	/** Grava a alteração, se ela for diferente do último evento do mesmo arquivo. */
+	private async record(resource: URI, change: IObservedChange): Promise<ChangeEvent> {
+		const key = resource.toString();
 		// Numa remoção não há o que ler: o evento registra que o arquivo saiu.
 		const content = change.kind === 'deleted' ? undefined : await this.readFile(resource);
 		const afterHash = content ? await this.ledger.recordSnapshot(content) : undefined;
+		const previous = this.lastEvents.get(key);
+
+		// A raiz do workspace é observada por mais de um pedido, e a mesma escrita
+		// chega em lotes separados. Registrar os dois poria duas entradas na linha do
+		// tempo para uma alteração só — e uma delas já nasceria como histórico.
+		if (previous && previous.afterHash === afterHash) {
+			return previous;
+		}
+
 		const baseline = await this.baselineProvider.resolve(change.fileUri);
 
 		if (baseline.content) {
@@ -129,6 +171,8 @@ export class ChangeRecorderService implements IChangeRecorderService {
 			// se o arquivo voltar. Numa remoção ela fica como estava.
 			await this.shadowStore.put(change.fileUri, content, change.timestamp);
 		}
+
+		this.lastEvents.set(key, event);
 
 		return event;
 	}
