@@ -1,76 +1,59 @@
-# Visual Studio Code - Open Source ("Code - OSS")
-[![Feature Requests](https://img.shields.io/github/issues/microsoft/vscode/feature-request.svg)](https://github.com/microsoft/vscode/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-request+sort%3Areactions-%2B1-desc)
-[![Bugs](https://img.shields.io/github/issues/microsoft/vscode/bug.svg)](https://github.com/microsoft/vscode/issues?utf8=✓&q=is%3Aissue+is%3Aopen+label%3Abug)
+# Watch Code
 
-## The Repository
+Um fork do Visual Studio Code voltado a **visualizar em tempo real** as alterações
+promovidas pelo agente de codificação e a **registrar sugestões de alteração** para ele.
 
-This repository ("`Code - OSS`") is where we (Microsoft) develop the [Visual Studio Code](https://code.visualstudio.com) product together with the community. Not only do we work on code and issues here, but we also publish our [roadmap](https://github.com/microsoft/vscode/wiki/Roadmap), [monthly iteration plans](https://github.com/microsoft/vscode/wiki/Iteration-Plans), and our [endgame plans](https://github.com/microsoft/vscode/wiki/Running-the-Endgame). This source code is available to everyone under the standard [MIT license](https://github.com/microsoft/vscode/blob/main/LICENSE.txt).
+O Watch Code não executa agentes e não é usado para escrever código. Ele observa o
+disco para mostrar o que qualquer agente, script ou terminal alterou no workspace — o
+que mudou, onde mudou e quando mudou — em uma linha do tempo navegável. O desenvolvedor
+lê, navega e **propõe**. Quem escreve o código é o agente.
 
-## Visual Studio Code
+## Como funciona
 
-<p align="center">
-  <img alt="VS Code in action" src="https://github.com/user-attachments/assets/56af271c-949d-454c-a3ea-16188c063414">
-</p>
+A comunicação acontece nos dois sentidos:
 
-[Visual Studio Code](https://code.visualstudio.com) is a distribution of the `Code - OSS` repository with Microsoft-specific customizations released under a traditional [Microsoft product license](https://code.visualstudio.com/License/).
+| Direção | Canal | Conteúdo |
+| --- | --- | --- |
+| Agente → IDE | disco | alterações de arquivo, com o antes e o depois |
+| IDE → agente | arquivo `.md` | propostas do desenvolvedor, com local e motivo |
 
-[Visual Studio Code](https://code.visualstudio.com) combines the simplicity of a code editor with what developers need for their core edit-build-debug cycle. It provides comprehensive code editing, navigation, and understanding support along with lightweight debugging, a rich extensibility model, and lightweight integration with existing tools.
+**Agente → IDE.** Todo agente, sem exceção, altera arquivos no disco. A IDE observa o
+workspace, recupera o estado anterior pelo git ou por um store de sombra e monta a
+linha do tempo com o diff de cada alteração. Não há nada a configurar: se o arquivo
+mudou, ele aparece.
 
-Visual Studio Code is updated monthly with new features and bug fixes. You can download it for Windows, macOS, and Linux on the [Visual Studio Code website](https://code.visualstudio.com/Download). To get the latest releases every day, install the [Insiders build](https://code.visualstudio.com/insiders).
+**IDE → agente.** O desenvolvedor registra propostas — sugestão de alteração ou TODO,
+com localização e motivo — e a IDE as escreve em um arquivo `.md` que o agente lê.
+Uma instrução plantada no arquivo de instruções que o workspace já usa (`CLAUDE.md`,
+`AGENTS.md`, `.github/copilot-instructions.md`) avisa o agente de que
+esse arquivo existe.
 
-## Contributing
+Funciona com qualquer agente. Onde o agente oferece hook, a IDE se integra
+opcionalmente para agrupar as alterações por turno e identificar a sessão; sem hook, o
+agrupamento é feito por pausa e o produto continua funcionando.
 
-There are many ways in which you can participate in this project, for example:
+## O que ele não é
 
-* [Submit bugs and feature requests](https://github.com/microsoft/vscode/issues), and help us verify them as they are checked in
-* Review [source code changes](https://github.com/microsoft/vscode/pulls)
-* Review the [documentation](https://github.com/microsoft/vscode-docs) and make pull requests for anything from typos to new content.
+- **Não é um agente.** Não há chat nem execução de modelo.
+- **Não é um editor para escrever código.** O editor serve para ler e comparar.
+- **Não exige integração.** A captura é por disco, então vale para qualquer agente,
+  script ou pessoa.
 
-If you are interested in fixing issues and contributing directly to the codebase, please see the document [How to Contribute](https://github.com/microsoft/vscode/wiki/How-to-Contribute), which covers the following:
+## Status
 
-* [How to build and run from source](https://github.com/microsoft/vscode/wiki/How-to-Contribute)
-* [The development workflow, including debugging and running tests](https://github.com/microsoft/vscode/wiki/How-to-Contribute#debugging)
-* [Coding guidelines](https://github.com/microsoft/vscode/wiki/Coding-Guidelines)
-* [Submitting pull requests](https://github.com/microsoft/vscode/wiki/How-to-Contribute#pull-requests)
-* [Finding an issue to work on](https://github.com/microsoft/vscode/wiki/How-to-Contribute#where-to-contribute)
-* [Contributing to translations](https://aka.ms/vscodeloc)
+Em desenvolvimento. A base é o `code-oss-dev` 1.138.0 e o trabalho está organizado
+em etapas: contratos do evento de alteração, ledger de snapshots, baseline do antes,
+watcher do workspace, linha do tempo, diff e propostas. O acompanhamento está em
+[`docs/watch-code/Workflow/overview.md`](docs/watch-code/Workflow/overview.md).
 
-## Feedback
+## Desenvolvimento
 
-* Ask a question on [Stack Overflow](https://stackoverflow.com/questions/tagged/vscode)
-* [Request a new feature](CONTRIBUTING.md)
-* Upvote [popular feature requests](https://github.com/microsoft/vscode/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-request+sort%3Areactions-%2B1-desc)
-* [File an issue](https://github.com/microsoft/vscode/issues)
-* Connect with the extension author community on [GitHub Discussions](https://github.com/microsoft/vscode-discussions/discussions) or [Slack](https://aka.ms/vscode-dev-community)
-* Follow [@code](https://x.com/code) and let us know what you think!
+O processo de build é o mesmo do fork original: siga o
+[How to Contribute](https://github.com/microsoft/vscode/wiki/How-to-Contribute).
 
-See our [wiki](https://github.com/microsoft/vscode/wiki/Feedback-Channels) for a description of each of these channels and information on some other available community-driven channels.
+No Windows, `watchcode.bat` na raiz abre a build já compilada, com diretórios de
+dados e de extensões isolados do VS Code instalado.
 
-## Related Projects
+## Licença
 
-Many of the core components and extensions to VS Code live in their own repositories on GitHub. For example, the [node debug adapter](https://github.com/microsoft/vscode-node-debug) and the [mono debug adapter](https://github.com/microsoft/vscode-mono-debug) repositories are separate from each other. For a complete list, please visit the [Related Projects](https://github.com/microsoft/vscode/wiki/Related-Projects) page on our [wiki](https://github.com/microsoft/vscode/wiki).
-
-## Bundled Extensions
-
-VS Code includes a set of built-in extensions located in the [extensions](extensions) folder, including grammars and snippets for many languages. Extensions that provide rich language support (inline suggestions, Go to Definition) for a language have the suffix `language-features`. For example, the `json` extension provides coloring for `JSON` and the `json-language-features` extension provides rich language support for `JSON`.
-
-## Development Container
-
-This repository includes a Visual Studio Code Dev Containers / GitHub Codespaces development container.
-
-* For [Dev Containers](https://aka.ms/vscode-remote/download/containers), use the **Dev Containers: Clone Repository in Container Volume...** command, which creates a Docker volume for better disk I/O on macOS and Windows.
-  * If you already have VS Code and Docker installed, you can also click [here](https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/microsoft/vscode) to get started. This will cause VS Code to automatically install the Dev Containers extension if needed, clone the source code into a container volume, and spin up a dev container for use.
-
-* For Codespaces, install the [GitHub Codespaces](https://marketplace.visualstudio.com/items?itemName=GitHub.codespaces) extension in VS Code, and use the **Codespaces: Create New Codespace** command.
-
-Docker / the Codespace should have at least **4 cores and 6 GB of RAM (8 GB recommended)** to run a full build. See the [development container README](.devcontainer/README.md) for more information.
-
-## Code of Conduct
-
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information, see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
-
-## License
-
-Copyright (c) Microsoft Corporation. All rights reserved.
-
-Licensed under the [MIT](LICENSE.txt) license.
+MIT. Copyright (c) Microsoft Corporation. Veja [LICENSE.txt](LICENSE.txt).
