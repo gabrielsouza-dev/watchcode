@@ -104,7 +104,8 @@ casando com o último evento de cada arquivo.
 - o caminho do ledger e quantos eventos havia ao estabilizar;
 - **qual watcher o app usou** (`parcel` ou `nodejs`, quando o log registra);
 - **o indicador da observação** na barra de status, consultado pelo depurador antes
-  de fechar o app. É evidência, não asserção: quem julga o indicador é o T-0004.
+  de fechar o app. É evidência, não asserção: quem julga o indicador e o comando é o
+  executor dos testes manuais, abaixo.
 
 ## O que fica para trás
 
@@ -115,10 +116,51 @@ recria tudo. Uma execução que falha deixa três pistas úteis:
 - `user-data/logs/<carimbo>/main.log` e `window1/renderer.log`;
 - o manifesto, que diz o que o estímulo fez.
 
+## Testes manuais executados no aplicativo
+
+Os testes de `docs/watch-code/testes-manuais.md` que precisam da interface montada
+rodam sozinhos por aqui:
+
+```
+node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts [T-0001 ...]
+```
+
+Sem argumento, roda todos. Cada teste abre o app no **seu próprio** perfil isolado
+(`%TEMP%/watchcode-manual/<idDoTeste>`) e julga o resultado lido do ledger — a mesma
+fonte que a leitura manual consultava.
+
+| Teste | O que ele faz |
+| --- | --- |
+| T-0001 | repositório git de verdade, com commit: o "antes" tem de vir do `HEAD` |
+| T-0002 | pasta sem git: a segunda escrita usa a sombra como "antes" |
+| T-0003 | watcher nativo: duas escritas separadas abrem sessões diferentes |
+| T-0004 | barra de status e Paleta de Comandos: o comando desliga, o clique religa |
+
+O Playwright comanda a interface pelo depurador do próprio app: lê o texto, o ícone
+e o rótulo de acessibilidade do indicador, passa o mouse para pegar o tooltip, abre a
+paleta e clica no item. Quando o contexto de edição nativo intercepta o clique, ele
+cai para as coordenadas do elemento.
+
+### O que muda em relação ao teste à mão
+
+- **Perfil e pasta novos a cada execução.** Cada teste parte do zero, então a
+  contagem de eventos começa em zero sem ninguém limpar o perfil antes.
+- **Uma sonda de prontidão.** Antes de medir, o teste escreve `aquecimento.txt` e
+  espera o evento dele no ledger: escrever cedo demais produz um ledger vazio, e um
+  ledger vazio não distingue observação desligada de observação que ainda não subiu.
+  As conferências filtram por arquivo, então a sonda não entra na conta.
+- **A leitura espera o ledger sossegar.** Quem julga é o estado final, como faria
+  quem abrisse os arquivos do perfil no fim — e não o instante logo após a escrita.
+
+### O que fica para trás
+
+`%TEMP%/watchcode-manual/<idDoTeste>`, com a pasta observada, o perfil e a saída do
+app em `app-output.log`. Pode ser apagado a qualquer momento.
+
 ## Limites
 
 - **Windows**: o executor abre o app por caminho e fecha a árvore com `taskkill`.
 - **Git no PATH**: w1, w2 e w6 dependem do `HEAD` para o antes.
 - **Abre uma janela** do Watch Code durante a execução, em perfil próprio.
-- **Não julga a interface** além de registrar o indicador: comando e indicador
-  continuam cobertos pelo teste manual T-0004.
+- **Não julga a interface** além de registrar o indicador: o comando da Paleta e o
+  clique no indicador são cobertos pelo executor dos testes manuais.
