@@ -14,8 +14,9 @@ O que fica aqui é o cenário, o que cada teste comprova e o resultado da execu�
 
 - **T-0004** passou em 10/09/2026 e saiu deste registro: o arnês cobre os mesmos
   passos, com Playwright no comando da barra de status e da Paleta de Comandos.
-- **T-0001**, **T-0002** e **T-0003** foram reprovados pelo defeito aberto no fim
-  deste arquivo.
+- **T-0001**, **T-0002** e **T-0003** foram reprovados na primeira execução e
+  **aprovados na segunda**, depois da correção do registro duplicado — descrita no
+  **defeito corrigido**, no fim deste arquivo.
 
 ---
 
@@ -24,7 +25,7 @@ O que fica aqui é o cenário, o que cada teste comprova e o resultado da execu�
 | Campo | Valor |
 | --- | --- |
 | Tarefa de origem | E1-T3 — Baseline do "antes" |
-| Situação | reprovado |
+| Situação | aprovado |
 | Data de execução | 10/09/2026 |
 
 ### Objetivo
@@ -105,11 +106,12 @@ O que este teste comprova, comprovou:
   conteúdo que estava no `HEAD`;
 - `beforeHash` e `afterHash` presentes, `source=agent`, `attribution=observed`,
   `status=current`;
-- o snapshot do "antes" guarda `linha original` e o do "depois", `linha alterada`.
+- o snapshot do "antes" guarda `linha original` e o do "depois", `linha alterada`;
+- e o ledger guardou **um** evento para essa escrita, como este teste espera.
 
-O que não bateu foi a contagem: o ledger gravou **dois** eventos para essa única
-escrita (`…880387` e `…880433`, 46 ms de diferença), e o esperado é um. Ver o
-**defeito aberto** no fim deste arquivo.
+Na primeira execução o teste foi reprovado: o ledger gravou **dois** eventos para
+essa única escrita (`…880387` e `…880433`, 46 ms de diferença). Causa e correção no
+**defeito corrigido**, no fim deste arquivo.
 
 ### Observações
 
@@ -122,7 +124,7 @@ Se `beforeHash` vier **ausente**, o baseline caiu para o modo parcial: verifique
 | Campo | Valor |
 | --- | --- |
 | Tarefa de origem | E1-T3 — Baseline do "antes" |
-| Situação | reprovado |
+| Situação | aprovado |
 | Data de execução | 10/09/2026 |
 
 ### Objetivo
@@ -174,10 +176,14 @@ sem git, `note.txt` na raiz e duas escritas separadas por três segundos.
 A sombra funcionou como este teste espera: os dois eventos da segunda escrita
 trazem `beforeHash=45c5b9a4…`, o hash de `versao dois\n`, que só podia vir dela.
 
-O que não bateu foram as contagens e a ordem. Cada escrita virou **dois** eventos,
-então o ledger ficou com quatro em vez de dois — e a posição que o teste esperava
-ser a segunda escrita é a cópia da primeira, com `antes=ausente`. Ver o **defeito
-aberto** no fim deste arquivo.
+E a contagem fechou: **dois** eventos para `note.txt`, um por escrita, com sessões
+diferentes — o primeiro sem antes e o segundo com `antes=45c5b9a4…`, o conteúdo de
+`versao dois`.
+
+Na primeira execução o teste foi reprovado: cada escrita virava **dois** eventos, o
+ledger ficava com quatro em vez de dois, e a posição que o teste esperava ser a
+segunda escrita era a cópia da primeira. Causa e correção no **defeito corrigido**,
+no fim deste arquivo.
 
 ### Observações
 
@@ -190,7 +196,7 @@ O primeiro evento ser parcial é o comportamento **correto**, não uma falha: é
 | Campo | Valor |
 | --- | --- |
 | Tarefa de origem | E1-T4 — Watcher do workspace |
-| Situação | reprovado |
+| Situação | aprovado |
 | Data de execução | 10/09/2026 |
 
 ### Objetivo
@@ -277,8 +283,11 @@ arquivos.
   estava vazia.
 - O segundo evento tem `beforeHash` presente, e o snapshot correspondente contém
   `versao dois`.
-- Os dois eventos têm `"source": "agent"`, `"attribution": "observed"` e
-  `"status": "current"`.
+- Os dois eventos têm `"source": "agent"` e `"attribution": "observed"`. O
+  `"status"` segue a regra de atualidade do ledger: quando o segundo evento entra,
+  o primeiro daquele arquivo vira `"history"` — só o último fica `"current"`.
+  *(Expectativa corrigida em 10/09/2026: a versão original deste teste pedia os dois
+  como `current`, o que contradiz a regra de atualidade do ledger.)*
 - O `afterHash` do segundo evento corresponde ao snapshot com `versao tres`.
 - Alterar o arquivo do PowerShell **não** dispara nenhuma ação da IDE: o evento
   nasce da observação do disco, não de um comando da interface.
@@ -289,13 +298,16 @@ Executado duas vezes em 10/09/2026 pelo arnês (Playwright), com o mesmo cenári
 pasta sem git, `note.txt` na raiz, duas escritas separadas por três segundos e o
 indicador da observação conferido antes de medir.
 
-O watcher nativo detectou as duas escritas, e a origem está certa em todos os
-eventos (`agent`/`observed`).
+O watcher nativo detectou as duas escritas, e a origem está certa nos dois eventos
+(`agent`/`observed`). A partição de sessões fechou: **dois** eventos para `note.txt`,
+com `sessionId` diferente para cada escrita, o primeiro sem `beforeHash` e o segundo
+com `antes=45c5b9a4…`, o conteúdo de `versao dois`. O último está `current` e o
+anterior virou `history`.
 
-O que não bateu foi a partição: cada escrita virou **dois** eventos, com a mesma
-`sessionId` dentro do par, então a contagem ficou em quatro em vez de dois, um dos
-duplicados saiu `status=history` e o par da primeira escrita foi lido como se fosse
-as duas escritas. Ver o **defeito aberto** abaixo.
+Na primeira execução o teste foi reprovado: cada escrita virava **dois** eventos com
+a mesma `sessionId` dentro do par, o ledger ficava com quatro em vez de dois e o par
+da primeira escrita era lido como se fosse as duas escritas. Causa e correção no
+**defeito corrigido** abaixo.
 
 ### Observações
 
@@ -306,10 +318,10 @@ horário e snapshots corretos.
 
 ---
 
-## Defeito aberto — uma escrita vira dois eventos
+## Defeito corrigido — uma escrita virava dois eventos
 
-Descoberto pelos testes T-0001 a T-0003 em 10/09/2026. **Não corrigido**: depende
-de decisão sobre a regra de descarte.
+Descoberto pelos testes T-0001 a T-0003 em 10/09/2026 e **corrigido no mesmo dia**.
+T-0001, T-0002 e T-0003 estão aprovados depois da correção.
 
 ### O que acontece
 
@@ -362,13 +374,39 @@ observador correlacionado que isolaria o nosso pedido, só aceita
 O estímulo dele escreve só dentro de `src/` — subpasta, portanto fora do alcance da
 observação não recursiva da raiz.
 
-### Correção — pendente de decisão
+### Correção aplicada
 
-1. **No serviço de observação**: guardar o estado já entregue por arquivo
-   (caminho, `mtime` e tamanho) e ignorar a repetição do mesmo estado dentro de uma
-   janela curta. Não lê nada a mais; depende de o sistema de arquivos carimbar dois
-   instantes diferentes para duas escritas de verdade.
-2. **No recorder**: guardar o último hash de conteúdo gravado por arquivo e não
-   registrar quando o arquivo no disco tem exatamente esse conteúdo — a alteração
-   não existiu. Exato por conteúdo e cobre qualquer entrega repetida.
+**No recorder**, por conteúdo: `ChangeRecorderService` guarda o último evento gravado
+por arquivo e não grava de novo quando o conteúdo no disco tem exatamente o
+`afterHash` dele — a alteração não existiu. Quem decide é o conteúdo, e não o relógio:
+nenhuma escrita de verdade depende do carimbo de tempo. A especificação está em
+`docs/watch-code/SPECS/escrita-repetida-nao-vira-evento.md`.
+
+A primeira tentativa não passou nos testes, e o motivo vale o registro: as duas
+entregas **chegam quase juntas**, e cada registro passa por leituras assíncronas. A
+segunda entrega olhava o mapa antes de a primeira ter gravado, então as duas
+gravavam. A correção ganhou uma **fila por arquivo**: a chamada seguinte só decide
+depois de a anterior terminar. O caso está travado no teste
+`duas entregas simultâneas da mesma escrita não viram dois eventos`, que falhou antes
+da fila e passa com ela.
+
+**No próprio teste T-0003**, a expectativa estava errada: ele pedia os dois eventos
+como `current`, e a regra de atualidade do ledger — a mesma que o e2e verifica desde
+a E1 — rebaixa o primeiro para `history` quando o segundo entra. A expectativa foi
+corrigida.
+
+**Evidência da correção**
+
+| Verificação | Resultado |
+| --- | --- |
+| Suíte do módulo | **98 passing** (eram 93 antes dos casos novos; o caso da entrega simultânea falhava sem a fila) |
+| `npm run compile-client` | `compile-src … with 0 errors` |
+| `npx eslint` nos arquivos tocados | sem erro |
+| higiene | sem erro |
+| Teste ponta a ponta | **PASSOU (7 eventos, 5 arquivos)**, as 12 invariantes ok — a correção não engole alteração de verdade |
+| T-0001, T-0002, T-0003 | **aprovados** |
+| T-0004 | aprovado |
+
+Onde o registro duplicado antigo ficou no perfil de um desenvolvedor, ele continua
+lá: limpar histórico já gravado é manutenção do ledger, não desta correção.
 
