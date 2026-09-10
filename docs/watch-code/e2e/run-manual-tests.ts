@@ -553,7 +553,9 @@ const TESTS: readonly IManualTest[] = [
 		t.check('o primeiro evento não tem antes: a pasta não tem git e a sombra estava vazia', events[0].beforeHash === undefined, `beforeHash=${events[0].beforeHash ?? 'ausente'}`);
 		t.check('o segundo evento tem antes vindo da sombra', events[1].beforeHash !== undefined, `beforeHash=${events[1].beforeHash ?? 'ausente'}`);
 		t.check('a origem é observada, e não um comando da interface', events.every(event => event.source === 'agent' && event.attribution === 'observed'), events.map(event => `${event.source}/${event.attribution}`).join(' | '));
-		t.check('os dois eventos estão current', events.every(event => event.status === 'current'), events.map(event => event.status).join(' | '));
+		// Regra de atualidade do ledger: só o último evento de um arquivo fica 'current';
+		// o anterior vira 'history' quando o seguinte entra.
+		t.check('o último evento está current e o anterior virou history', events[0].status === 'history' && events[1].status === 'current', events.map(event => event.status).join(' | '));
 
 		const before = session.ledger.snapshot(events[1].beforeHash);
 		const after = session.ledger.snapshot(events[1].afterHash);
