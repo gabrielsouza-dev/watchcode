@@ -105,6 +105,12 @@ export class ChangeRecorderService implements IChangeRecorderService {
 		const afterHash = content ? await this.ledger.recordSnapshot(content) : undefined;
 		const baseline = await this.baselineProvider.resolve(change.fileUri);
 
+		if (baseline.content) {
+			// O "antes" também entra no store: o evento aponta para o hash dele, e sem o
+			// conteúdo guardado o diff não teria de onde ler o outro lado da alteração.
+			await this.ledger.recordSnapshot(baseline.content);
+		}
+
 		const { event } = await this.ledger.record({
 			id: generateUuid(),
 			sessionId: change.sessionId,

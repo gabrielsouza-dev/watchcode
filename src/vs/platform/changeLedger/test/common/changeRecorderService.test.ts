@@ -95,6 +95,22 @@ suite('changeRecorderService', () => {
 		});
 	});
 
+	test('o "antes" vindo do git fica guardado no store de snapshots', async () => {
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
+		const before = VSBuffer.fromString('antes');
+
+		const event = await createRecorder(() => Promise.resolve(before)).recordChange(observedChange());
+		const stored = event.beforeHash ? await ledger.readSnapshot(event.beforeHash) : undefined;
+
+		assert.deepStrictEqual({
+			stored: stored?.toString(),
+			hashIsTheRealOne: event.beforeHash === await computeContentHash(before),
+		}, {
+			stored: 'antes',
+			hashIsTheRealOne: true,
+		});
+	});
+
 	test('sem baseline algum o evento é gravado sem "antes"', async () => {
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
 
