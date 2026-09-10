@@ -75,6 +75,19 @@ funcionando** — não por quem vai reler o código. Escreva para essa pessoa.
   afirmar que funciona sem mostrar como se sabe.
 - Os caminhos exatos dos arquivos criados e alterados.
 - O que ficou de fora, o que não foi verificado e o que ainda depende do usuário.
+
+## Commit
+
+Ao terminar, **commite o resultado da tarefa** — o trabalho não fica na árvore de
+trabalho.
+
+- Use o padrão de mensagem já adotado no repositório.
+- Separe por assunto: o que a tarefa mudou num commit; assuntos diferentes em
+  commits diferentes.
+- **Não commite** se houver impedimento grande — validação reprovada, requisito
+  não atendido ou decisão pendente do usuário. Nesse caso, relate o motivo e
+  deixe a árvore como está.
+
 ## Restrições
 
 - Não alterar código nesta etapa.
@@ -83,7 +96,7 @@ funcionando** — não por quem vai reler o código. Escreva para essa pessoa.
 
 ## Critérios de conclusão
 
-O workflow está concluído quando o relatório foi apresentado ao usuário com todas as seções obrigatórias preenchidas.
+O workflow está concluído quando o relatório foi apresentado ao usuário com todas as seções obrigatórias preenchidas e as alterações da tarefa foram commitadas — ou, havendo impedimento grande, quando o motivo de não commitar foi relatado.
 
 ## Regras
 
