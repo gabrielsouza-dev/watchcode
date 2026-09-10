@@ -136,6 +136,95 @@ suite('workspaceWatcherService', () => {
 		assert.strictEqual((await ledger.readByFile(FILE_URI)).length, 1);
 	});
 
+	test('start avisa que a observação ligou', () => {
+		const emitidos: boolean[] = [];
+		disposables.add(service.onDidChangeActive(active => emitidos.push(active)));
+
+		service.start();
+
+		assert.deepStrictEqual(emitidos, [true]);
+	});
+
+	test('stop avisa que a observação desligou', () => {
+		service.start();
+
+		const emitidos: boolean[] = [];
+		disposables.add(service.onDidChangeActive(active => emitidos.push(active)));
+
+		service.stop();
+
+		assert.deepStrictEqual(emitidos, [false]);
+	});
+
+	test('start repetido não avisa de novo', () => {
+		const emitidos: boolean[] = [];
+		disposables.add(service.onDidChangeActive(active => emitidos.push(active)));
+
+		service.start();
+		service.start();
+
+		assert.deepStrictEqual(emitidos, [true]);
+	});
+
+	test('stop repetido não avisa de novo', () => {
+		service.start();
+		service.stop();
+
+		const emitidos: boolean[] = [];
+		disposables.add(service.onDidChangeActive(active => emitidos.push(active)));
+
+		service.stop();
+
+		assert.deepStrictEqual(emitidos, []);
+	});
+
+	test('toggle inverte o estado', () => {
+		const emitidos: boolean[] = [];
+		disposables.add(service.onDidChangeActive(active => emitidos.push(active)));
+
+		service.toggle();
+		service.toggle();
+
+		assert.deepStrictEqual({ emitidos, isActive: service.isActive }, { emitidos: [true, false], isActive: false });
+	});
+
+	test('toggle religado volta a observar com sessão nova', async () => {
+		service.start();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('antes'));
+		await timeout(SETTLED);
+
+		service.toggle();
+		service.toggle();
+
+		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
+		await timeout(SETTLED);
+
+		const events = await ledger.readByFile(FILE_URI);
+
+		assert.deepStrictEqual({
+			total: events.length,
+			mesmaSessao: events[0]?.sessionId === events[1]?.sessionId,
+		}, {
+			total: 2,
+			mesmaSessao: false,
+		});
+	});
+
+	test('sem pasta no workspace o toggle não liga', () => {
+		const environmentService = { workspaceStorageHome: URI.from({ scheme: Schemas.inMemory, path: '/storage' }) } as unknown as IEnvironmentService;
+		const emptyContext = { getWorkspace: () => ({ id: 'workspace-3', folders: [] }) } as unknown as IWorkspaceContextService;
+		const recorder = new ChangeRecorderService(ledger, fileService, emptyContext, environmentService);
+		const semPasta = disposables.add(new WorkspaceWatcherService(fileService, emptyContext, recorder, new NullLogService()));
+
+		const emitidos: boolean[] = [];
+		disposables.add(semPasta.onDidChangeActive(active => emitidos.push(active)));
+
+		semPasta.toggle();
+
+		assert.deepStrictEqual({ isActive: semPasta.isActive, emitidos }, { isActive: false, emitidos: [] });
+	});
+
 	test('a remoção do arquivo vira evento sem "depois"', async () => {
 		service.start();
 

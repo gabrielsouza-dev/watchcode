@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 // allow-any-unicode-comment-file -- comentarios em portugues usam acentuacao.
 
+import { Emitter, Event } from '../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import { isEqualOrParent, relativePath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
@@ -35,8 +36,14 @@ export interface IWorkspaceWatcherService {
 	/** Desliga a observação e fecha as sessões abertas. Idempotente. */
 	stop(): void;
 
+	/** Inverte o estado da observação. */
+	toggle(): void;
+
 	/** Observação está ativa. */
 	readonly isActive: boolean;
+
+	/** Avisa quando o estado da observação muda. */
+	readonly onDidChangeActive: Event<boolean>;
 }
 
 /** Alteração do disco já atribuída à pasta de onde veio. */
@@ -51,6 +58,9 @@ interface IObservedFile {
 export class WorkspaceWatcherService extends Disposable implements IWorkspaceWatcherService {
 
 	readonly _serviceBrand: undefined;
+
+	private readonly _onDidChangeActive = this._register(new Emitter<boolean>());
+	readonly onDidChangeActive = this._onDidChangeActive.event;
 
 	private readonly folderWatchers = this._register(new DisposableStore());
 	private readonly grouper = new SessionGrouper();
@@ -90,6 +100,16 @@ export class WorkspaceWatcherService extends Disposable implements IWorkspaceWat
 		for (const folder of folders) {
 			this.folderWatchers.add(this.fileService.watch(folder.uri, { recursive: true, excludes: [] }));
 		}
+
+		this._onDidChangeActive.fire(true);
+	}
+
+	toggle(): void {
+		if (this.active) {
+			this.stop();
+		} else {
+			this.start();
+		}
 	}
 
 	stop(): void {
@@ -100,6 +120,8 @@ export class WorkspaceWatcherService extends Disposable implements IWorkspaceWat
 		this.active = false;
 		this.folderWatchers.clear();
 		this.grouper.closeAll(sessionId => this.logSessionEnded(sessionId));
+
+		this._onDidChangeActive.fire(false);
 	}
 
 	/** Descarta o ruído, agrupa e entrega cada alteração ao recorder. */

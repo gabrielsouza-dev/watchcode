@@ -476,5 +476,6 @@ import './contrib/opener/browser/opener.contribution.js';
 
 // Watch Code
 import './contrib/watchCode/browser/hiddenViews.contribution.js';
+import './contrib/watchCode/browser/observationControl.contribution.js';
 
 //#endregion
