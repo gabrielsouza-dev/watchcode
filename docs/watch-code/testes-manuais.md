@@ -3,6 +3,20 @@
 Registro único dos testes manuais do projeto, conforme a regra em `CLAUDE.md`.
 Testes são **acrescentados**, nunca substituídos.
 
+Os testes que precisam da interface montada passaram a ser executados no
+aplicativo pelo arnês `docs/watch-code/e2e/run-manual-tests.ts`:
+
+```
+node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts [T-0001 ...]
+```
+
+O que fica aqui é o cenário, o que cada teste comprova e o resultado da execução.
+
+- **T-0004** passou em 10/09/2026 e saiu deste registro: o arnês cobre os mesmos
+  passos, com Playwright no comando da barra de status e da Paleta de Comandos.
+- **T-0001**, **T-0002** e **T-0003** foram reprovados pelo defeito aberto no fim
+  deste arquivo.
+
 ---
 
 ## T-0001 — Baseline do "antes" com repositório git real
@@ -10,8 +24,8 @@ Testes são **acrescentados**, nunca substituídos.
 | Campo | Valor |
 | --- | --- |
 | Tarefa de origem | E1-T3 — Baseline do "antes" |
-| Situação | pendente |
-| Data de execução | — |
+| Situação | reprovado |
+| Data de execução | 10/09/2026 |
 
 ### Objetivo
 
@@ -81,7 +95,21 @@ Um teste automatizado não cobre isto porque exige um **repositório git de verd
 
 ### Resultado obtido
 
-_A preencher na execução._
+Executado em 10/09/2026 pelo arnês `docs/watch-code/e2e/run-manual-tests.ts`
+(Playwright), com o mesmo cenário deste teste: repositório git com um commit,
+`note.txt` na raiz da pasta observada e a escrita feita por fora do app.
+
+O que este teste comprova, comprovou:
+
+- o evento traz `beforeHash=8b70c4b4…`, que é o hash de `linha original\n` — o
+  conteúdo que estava no `HEAD`;
+- `beforeHash` e `afterHash` presentes, `source=agent`, `attribution=observed`,
+  `status=current`;
+- o snapshot do "antes" guarda `linha original` e o do "depois", `linha alterada`.
+
+O que não bateu foi a contagem: o ledger gravou **dois** eventos para essa única
+escrita (`…880387` e `…880433`, 46 ms de diferença), e o esperado é um. Ver o
+**defeito aberto** no fim deste arquivo.
 
 ### Observações
 
@@ -94,8 +122,8 @@ Se `beforeHash` vier **ausente**, o baseline caiu para o modo parcial: verifique
 | Campo | Valor |
 | --- | --- |
 | Tarefa de origem | E1-T3 — Baseline do "antes" |
-| Situação | pendente |
-| Data de execução | — |
+| Situação | reprovado |
+| Data de execução | 10/09/2026 |
 
 ### Objetivo
 
@@ -140,7 +168,16 @@ Comprovar que, **sem** repositório git, a segunda alteração de um arquivo usa
 
 ### Resultado obtido
 
-_A preencher na execução._
+Executado em 10/09/2026 pelo arnês (Playwright), com o mesmo cenário: pasta
+sem git, `note.txt` na raiz e duas escritas separadas por três segundos.
+
+A sombra funcionou como este teste espera: os dois eventos da segunda escrita
+trazem `beforeHash=45c5b9a4…`, o hash de `versao dois\n`, que só podia vir dela.
+
+O que não bateu foram as contagens e a ordem. Cada escrita virou **dois** eventos,
+então o ledger ficou com quatro em vez de dois — e a posição que o teste esperava
+ser a segunda escrita é a cópia da primeira, com `antes=ausente`. Ver o **defeito
+aberto** no fim deste arquivo.
 
 ### Observações
 
@@ -153,8 +190,8 @@ O primeiro evento ser parcial é o comportamento **correto**, não uma falha: é
 | Campo | Valor |
 | --- | --- |
 | Tarefa de origem | E1-T4 — Watcher do workspace |
-| Situação | pendente |
-| Data de execução | — |
+| Situação | reprovado |
+| Data de execução | 10/09/2026 |
 
 ### Objetivo
 
@@ -248,7 +285,17 @@ arquivos.
 
 ### Resultado obtido
 
-_A preencher na execução._
+Executado duas vezes em 10/09/2026 pelo arnês (Playwright), com o mesmo cenário:
+pasta sem git, `note.txt` na raiz, duas escritas separadas por três segundos e o
+indicador da observação conferido antes de medir.
+
+O watcher nativo detectou as duas escritas, e a origem está certa em todos os
+eventos (`agent`/`observed`).
+
+O que não bateu foi a partição: cada escrita virou **dois** eventos, com a mesma
+`sessionId` dentro do par, então a contagem ficou em quatro em vez de dois, um dos
+duplicados saiu `status=history` e o par da primeira escrita foi lido como se fosse
+as duas escritas. Ver o **defeito aberto** abaixo.
 
 ### Observações
 
@@ -259,115 +306,69 @@ horário e snapshots corretos.
 
 ---
 
-## T-0004 — Comando e indicador da observação
+## Defeito aberto — uma escrita vira dois eventos
 
-| Campo | Valor |
-| --- | --- |
-| Tarefa de origem | E1-T5 — Controle de observação |
-| Situação | pendente |
-| Data de execução | — |
+Descoberto pelos testes T-0001 a T-0003 em 10/09/2026. **Não corrigido**: depende
+de decisão sobre a regra de descarte.
 
-### Objetivo
+### O que acontece
 
-Comprovar que o comando `watchCode.toggleObservation` e o item da barra de status
-funcionam na interface montada, e que **desligar realmente impede o registro de
-eventos**.
+Uma alteração de um arquivo **na raiz do workspace** é gravada **duas vezes** no
+ledger. Em uma das execuções, o arquivo de sonda chegou a receber **três** eventos
+para uma escrita só.
 
-Um teste automatizado não cobre isto porque a Paleta de Comandos e a barra de
-status só existem com a interface montada e o Electron rodando. A suíte de unidade
-testa o serviço (`toggle`, `onDidChangeActive`), mas não a contribuição de
-interface que registra o comando e desenha o indicador.
+### Como foi verificado
 
-### Pré-condições
+Com o serviço instrumentado para registrar cada lote entregue pelo serviço de
+arquivos, aparecem **dois lotes** para a mesma escrita, de 1 a 100 ms de diferença:
 
-- Build atualizado: `npm run compile-client` concluído sem erros.
-- Uma pasta de teste. Ex.: `D:\tmp\wc-observacao`.
-- A IDE aberta nessa pasta, pelo script `watchcode.bat`.
+```
+[watchCode][diag] lote added=[] updated=[.../workspace/raiz.txt] deleted=[] ativo=true
+[watchCode][diag] lote added=[] updated=[.../workspace/raiz.txt] deleted=[] ativo=true
+```
 
-### Passos
+A coalescência que existe hoje no serviço só junta o que vem **dentro** de um lote
+(o caso `added` + `updated` da criação de arquivo), então dois lotes viram dois
+eventos.
 
-1. Prepare a pasta de teste:
+### Por que só na raiz
 
-   ```powershell
-   mkdir D:\tmp\wc-observacao
-   "versao inicial" | Out-File -Encoding utf8 D:\tmp\wc-observacao\note.txt
-   ```
+A segunda entrega não vem do nosso código. O localizador de arquivos de prompt do
+chat observa a **raiz do workspace sem recursão**, para enxergar `AGENTS.md` e
+`CLAUDE.md`:
 
-2. Abra a pasta na IDE:
+- `src/vs/workbench/contrib/chat/common/promptSyntax/utils/promptFilesLocator.ts`,
+  `createAgentInstructionsUpdatedEvent`, chama `fileService.watch(workspaceRoot)`
+  sem `recursive`;
+- uma observação não recursiva de uma pasta acompanha os **filhos diretos** dela;
+- todo arquivo na raiz chega então duas vezes ao fluxo compartilhado
+  `onDidFilesChange`, e arquivo em subpasta chega uma vez só.
 
-   ```powershell
-   .\watchcode.bat D:\tmp\wc-observacao
-   ```
+Comprovado por experimento, duas vezes: escrita em `raiz.txt` produziu **2**
+eventos; escrita em `sub/pasta.txt`, **1**. A duplicação continua com
+`--disable-extensions`, logo não é extensão. O `IFileService.createWatcher`, o
+observador correlacionado que isolaria o nosso pedido, só aceita
+`recursive: false` e não serve para observar a pasta inteira.
 
-3. Olhe a **barra de status**, na extremidade direita: deve haver um item com
-   ícone de **olho aberto** e o texto `Watch Code`.
+### Consequências no ledger
 
-4. Passe o mouse sobre o item: o tooltip deve dizer `Watch Code is observing the
-   workspace. Click to turn observation off.` (em inglês, porque o perfil isolado
-   não tem pacote de idioma instalado).
+- dois eventos para uma alteração: a linha do tempo mostraria duas entradas;
+- um dos dois fica `status=history` no mesmo instante;
+- o índice lista apenas um deles, deixando o outro como arquivo órfão;
+- o evento repetido pode sair com `antes` igual ao `depois`.
 
-5. Abra a Paleta de Comandos (`Ctrl+Shift+P`), digite `Watch Code` e confirme que
-   aparece o item **Watch Code: Turn Observation On/Off**. Não execute ainda.
+### Por que o teste ponta a ponta não pegou
 
-6. Execute esse comando. O ícone deve virar **olho fechado** e o tooltip deve
-   passar para `Watch Code is not observing the workspace. Click to turn
-   observation on.`
+O estímulo dele escreve só dentro de `src/` — subpasta, portanto fora do alcance da
+observação não recursiva da raiz.
 
-7. Anote quantos eventos existem hoje no workspace:
+### Correção — pendente de decisão
 
-   ```powershell
-   $raiz = "$env:LOCALAPPDATA\watchcode-udd\User\workspaceStorage"
-   $eventos = Get-ChildItem -Recurse -Filter '*.json' $raiz |
-     Where-Object { $_.FullName -like '*changeLedger\events\*' }
-   "total de eventos: $($eventos.Count)"
-   ```
-
-8. Com a observação **desligada**, altere o arquivo fora da IDE:
-
-   ```powershell
-   "mudanca com observacao desligada" | Out-File -Encoding utf8 D:\tmp\wc-observacao\note.txt
-   Start-Sleep -Seconds 3
-   ```
-
-9. Repita o comando do passo 7 e compare a contagem.
-
-10. **Clique** no item da barra de status. O ícone deve voltar a ser olho aberto.
-
-11. Altere o arquivo de novo:
-
-    ```powershell
-    "mudanca com observacao ligada" | Out-File -Encoding utf8 D:\tmp\wc-observacao\note.txt
-    Start-Sleep -Seconds 3
-    ```
-
-12. Repita o comando do passo 7 e confirme o evento novo:
-
-    ```powershell
-    Select-String -Path ($eventos.FullName) -Pattern '"fileUri"' |
-      ForEach-Object { $_.Line.Trim() }
-    ```
-
-### Resultado esperado
-
-- Passo 3: o item `$(eye) Watch Code` está na barra de status, alinhado à direita,
-  **sem** cor de alerta.
-- Passo 5: o comando aparece na paleta, com a categoria `Watch Code`.
-- Passo 6: o comando desliga a observação e o indicador acompanha **na hora**,
-  sem recarregar a janela.
-- Passo 9: a contagem é **igual** à do passo 7 — a escrita feita com a observação
-  desligada **não** virou evento.
-- Passo 10: o clique no indicador religa a observação, sem passar pela paleta.
-- Passo 12: apareceu **exatamente um** evento novo, com `"fileUri"` apontando
-  para `note.txt`.
-
-### Resultado obtido
-
-_A preencher na execução._
-
-### Observações
-
-Se o passo 9 mostrar um evento novo, a observação **não** foi realmente desligada —
-verifique no passo 6 se o ícone chegou a mudar. Como o `start()` não faz varredura
-de recuperação, um evento faltando no passo 12 significa que a religação não
-aconteceu, e não que a escrita foi ignorada por acaso.
+1. **No serviço de observação**: guardar o estado já entregue por arquivo
+   (caminho, `mtime` e tamanho) e ignorar a repetição do mesmo estado dentro de uma
+   janela curta. Não lê nada a mais; depende de o sistema de arquivos carimbar dois
+   instantes diferentes para duas escritas de verdade.
+2. **No recorder**: guardar o último hash de conteúdo gravado por arquivo e não
+   registrar quando o arquivo no disco tem exatamente esse conteúdo — a alteração
+   não existiu. Exato por conteúdo e cobre qualquer entrega repetida.
 
