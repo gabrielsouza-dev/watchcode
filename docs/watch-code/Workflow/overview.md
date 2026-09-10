@@ -111,7 +111,16 @@ O terminal é onde o agente é iniciado. Por isso ele **não** entra em nenhuma 
 | **Desligado** | Nenhuma sessão de observação é aberta e nenhum hook é injetado. |
 | **Ligado** | Observação ativa: eventos de disco são registrados como sessão e o hook é injetado no agente. |
 
-**Ponto em aberto (aguardando confirmação):** a §3.1 descreve a camada de disco como base universal, de zero configuração. Se "desligado" suspender **toda** a captura por disco, o produto deixa de ser universal por padrão e passa a exigir um clique a cada uso. Se "desligado" suspender apenas o **hook e o agrupamento em sessão**, a base universal continua valendo e o botão comanda o enriquecimento. A segunda leitura é a coerente com a §3.1, e é a assumida aqui.
+**Resolvido na E1-T5:** "desligado" suspende **toda** a captura por disco —
+nenhum watcher ativo, nenhum evento gravado, nenhuma sessão aberta. A leitura
+alternativa (suspender apenas o hook e o agrupamento em sessão) foi descartada:
+sem hook até a E6, o único efeito dela seria desligar o agrupamento, e o contrato
+exige `sessionId` em todo evento gravado.
+
+Dois custos aceitos: a base universal passa a depender da observação ligada, e
+como o `start()` **não** faz varredura de recuperação, o que for escrito com a
+observação desligada não entra no ledger. Por isso o estado nasce **ligado** ao
+abrir o workspace (D2 = A) e não é persistido — reabrir a janela volta a observar.
 
 
 ## 4. Modelo de dados
@@ -246,7 +255,7 @@ O critério é o tipo de acoplamento de cada módulo inútil ao produto:
 | E1-T2 | Ledger e snapshots | Gravação/leitura de eventos, store endereçado por hash, hash de arquivo, persistência por workspace | E1-T1 | feito (44 testes no módulo) |
 | E1-T3 | Baseline do "antes" | Estado anterior por git (`HEAD`) e por store de sombra; regra do evento parcial quando não há baseline | E1-T2 | feito (64 testes no módulo; 2 testes manuais pendentes) |
 | E1-T4 | Watcher do workspace | Observação do disco, detecção de escrita externa, agrupamento por pausa e criação do evento de origem `agent` | E1-T3 | feito (85 testes no módulo; 1 teste manual pendente) |
-| E1-T5 | Controle de observação | Comando e indicador de estado para **ativar/desativar** a observação pela interface; desligado, nenhuma sessão é aberta; estado refletido no status | E1-T4 | pendente |
+| E1-T5 | Controle de observação | Comando e indicador de estado para **ativar/desativar** a observação pela interface; desligado, nenhuma sessão é aberta; estado refletido no status | E1-T4 | feito (92 testes no módulo; 1 teste manual pendente) |
 | E1-T6 | Fechamento da E1 | Um script (sem agente nenhum) altera arquivos e cada alteração aparece no ledger com antes/depois corretos, com a observação ligada | E1-T5 | pendente |
 
 **E1 pronta quando:** com a observação ligada, qualquer alteração feita fora da IDE — por agente, script ou terminal — vira um evento com arquivo, origem, horário e snapshots antes/depois corretos.
