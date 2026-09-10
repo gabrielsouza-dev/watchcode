@@ -73,7 +73,6 @@ import '../workbench/services/extensionManagement/electron-browser/extensionGall
 import '../workbench/services/extensionManagement/electron-browser/extensionTipsService.js';
 import '../workbench/services/userDataSync/electron-browser/userDataSyncService.js';
 import '../workbench/services/userDataSync/electron-browser/userDataAutoSyncService.js';
-import '../workbench/contrib/userDataSync/electron-browser/userDataSyncUtilChannel.contribution.js';
 import '../workbench/services/timer/electron-browser/timerService.js';
 import '../workbench/services/environment/electron-browser/shellEnvironmentService.js';
 import '../workbench/services/integrity/electron-browser/integrityService.js';
@@ -160,7 +159,6 @@ import '../workbench/contrib/issue/electron-browser/issue.contribution.js';
 import '../workbench/contrib/surveys/browser/survey.contribution.js';
 
 // Process Explorer
-import '../workbench/contrib/processExplorer/electron-browser/processExplorer.contribution.js';
 
 // Remote
 import '../workbench/contrib/remote/electron-browser/remote.contribution.js';
@@ -190,7 +188,6 @@ import '../workbench/contrib/webview/electron-browser/webview.contribution.js';
 import '../workbench/contrib/browserView/electron-browser/browserView.contribution.js';
 
 // Splash
-import '../workbench/contrib/splash/electron-browser/splash.contribution.js';
 
 // Local History
 import '../workbench/contrib/localHistory/electron-browser/localHistory.contribution.js';
@@ -208,16 +205,13 @@ import '../workbench/contrib/remoteTunnel/electron-browser/remoteTunnel.contribu
 import '../workbench/contrib/encryption/electron-browser/encryption.contribution.js';
 
 // Emergency Alert
-import '../workbench/contrib/emergencyAlert/electron-browser/emergencyAlert.contribution.js';
 
 // MCP
 import '../workbench/contrib/mcp/electron-browser/mcp.contribution.js';
 
 // Policy Export
-import '../workbench/contrib/policyExport/electron-browser/policyExport.contribution.js';
 
 // Keybindings Export
-import '../workbench/contrib/keybindingsExport/electron-browser/keybindingsExport.contribution.js';
 
 //#endregion
 

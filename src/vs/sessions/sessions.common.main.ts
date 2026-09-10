@@ -291,7 +291,6 @@ registerSingleton(IDebugService, NullDebugService, InstantiationType.Delayed);
 registerSingleton(IDebugVisualizerService, NullDebugVisualizerService, InstantiationType.Delayed);
 
 // Process Explorer
-import '../workbench/contrib/processExplorer/browser/processExplorer.contribution.js';
 
 // Merge Editor
 import '../workbench/contrib/mergeEditor/browser/mergeEditor.contribution.js';
@@ -367,7 +366,6 @@ import '../workbench/contrib/format/browser/format.contribution.js';
 import '../workbench/contrib/folding/browser/folding.contribution.js';
 
 // Limit Indicator
-import '../workbench/contrib/limitIndicator/browser/limitIndicator.contribution.js';
 
 // Inlay Hint Accessibility
 import '../workbench/contrib/inlayHints/browser/inlayHintsAccessibilty.js';
@@ -379,8 +377,6 @@ import '../workbench/contrib/themes/browser/themes.contribution.js';
 import '../workbench/contrib/update/browser/update.contribution.js';
 
 // Welcome
-import '../workbench/contrib/welcomeViews/common/viewsWelcome.contribution.js';
-import '../workbench/contrib/welcomeViews/common/newFile.contribution.js';
 
 // Call Hierarchy
 import '../workbench/contrib/callHierarchy/browser/callHierarchy.contribution.js';
@@ -401,7 +397,6 @@ import '../workbench/contrib/authentication/browser/authentication.contribution.
 import '../workbench/contrib/userDataProfile/browser/userDataProfile.contribution.js';
 
 // Continue Edit Session
-import '../workbench/contrib/editSessions/browser/editSessions.contribution.js';
 
 // Remote Coding Agents
 import '../workbench/contrib/remoteCodingAgents/browser/remoteCodingAgents.contribution.js';

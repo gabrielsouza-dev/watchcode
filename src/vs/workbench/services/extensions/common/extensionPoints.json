@@ -15,7 +15,6 @@
 	"commands",
 	"configuration",
 	"configurationDefaults",
-	"continueEditSession",
 	"css",
 	"customEditors",
 	"debugVisualizers",
@@ -56,6 +55,5 @@
 	"themes",
 	"views",
 	"viewsContainers",
-	"viewsWelcome",
 	"walkthroughs"
 ]

@@ -299,7 +299,6 @@ import './contrib/debug/browser/debugViewlet.js';
 import './contrib/markers/browser/markers.contribution.js';
 
 // Process Explorer
-import './contrib/processExplorer/browser/processExplorer.contribution.js';
 
 // Merge Editor
 import './contrib/mergeEditor/browser/mergeEditor.contribution.js';
@@ -374,7 +373,6 @@ import './contrib/format/browser/format.contribution.js';
 import './contrib/folding/browser/folding.contribution.js';
 
 // Limit Indicator
-import './contrib/limitIndicator/browser/limitIndicator.contribution.js';
 
 // Inlay Hint Accessibility
 import './contrib/inlayHints/browser/inlayHintsAccessibilty.js';
@@ -392,9 +390,6 @@ import './contrib/surveys/browser/languageSurveys.contribution.js';
 // Welcome
 import './contrib/welcomeGettingStarted/browser/gettingStarted.contribution.js';
 import './contrib/welcomeAgentSessions/browser/agentSessionsWelcome.contribution.js';
-import './contrib/welcomeWalkthrough/browser/walkThrough.contribution.js';
-import './contrib/welcomeViews/common/viewsWelcome.contribution.js';
-import './contrib/welcomeViews/common/newFile.contribution.js';
 
 // Welcome Onboarding
 import './contrib/welcomeOnboarding/browser/welcomeOnboarding.contribution.js';
@@ -422,13 +417,11 @@ import './contrib/languageStatus/browser/languageStatus.contribution.js';
 import './contrib/authentication/browser/authentication.contribution.js';
 
 // User Data Sync
-import './contrib/userDataSync/browser/userDataSync.contribution.js';
 
 // User Data Profiles
 import './contrib/userDataProfile/browser/userDataProfile.contribution.js';
 
 // Continue Edit Session
-import './contrib/editSessions/browser/editSessions.contribution.js';
 
 // Remote Coding Agents
 import './contrib/remoteCodingAgents/browser/remoteCodingAgents.contribution.js';
@@ -462,7 +455,6 @@ import './contrib/bracketPairColorizer2Telemetry/browser/bracketPairColorizer2Te
 import './contrib/accessibility/browser/accessibility.contribution.js';
 
 // Metered Connection
-import './contrib/meteredConnection/browser/meteredConnection.contribution.js';
 
 // Share
 import './contrib/share/browser/share.contribution.js';
@@ -481,5 +473,8 @@ import './contrib/editTelemetry/browser/editTelemetry.contribution.js';
 
 // Opener
 import './contrib/opener/browser/opener.contribution.js';
+
+// Watch Code
+import './contrib/watchCode/browser/hiddenViews.contribution.js';
 
 //#endregion

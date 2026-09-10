@@ -77,6 +77,7 @@ import './services/environment/electron-browser/shellEnvironmentService.js';
 import './services/integrity/electron-browser/integrityService.js';
 import './services/workingCopy/electron-browser/workingCopyBackupService.js';
 import './services/checksum/electron-browser/checksumService.js';
+import './services/changeLedger/electron-browser/changeLedgerService.js';
 import '../platform/remote/electron-browser/sharedProcessTunnelService.js';
 import './services/tunnel/electron-browser/tunnelService.js';
 import '../platform/diagnostics/electron-browser/diagnosticsService.js';
@@ -138,7 +139,6 @@ import './contrib/issue/electron-browser/issue.contribution.js';
 import './contrib/surveys/browser/survey.contribution.js';
 
 // Process Explorer
-import './contrib/processExplorer/electron-browser/processExplorer.contribution.js';
 
 // Remote
 import './contrib/remote/electron-browser/remote.contribution.js';
@@ -150,7 +150,6 @@ import './contrib/terminal/electron-browser/terminal.contribution.js';
 import './contrib/themes/browser/themes.test.contribution.js';
 import './services/themes/electron-browser/themes.contribution.js';
 // User Data Sync
-import './contrib/userDataSync/electron-browser/userDataSync.contribution.js';
 
 // Tags
 import './contrib/tags/electron-browser/workspaceTagsService.js';
@@ -171,7 +170,6 @@ import './contrib/webview/electron-browser/webview.contribution.js';
 import './contrib/browserView/electron-browser/browserView.contribution.js';
 
 // Splash
-import './contrib/splash/electron-browser/splash.contribution.js';
 
 // Local History
 import './contrib/localHistory/electron-browser/localHistory.contribution.js';
@@ -196,16 +194,13 @@ import './contrib/agentsVoice/electron-browser/agentsVoiceNativeCommands.js';
 import './contrib/encryption/electron-browser/encryption.contribution.js';
 
 // Emergency Alert
-import './contrib/emergencyAlert/electron-browser/emergencyAlert.contribution.js';
 
 // MCP
 import './contrib/mcp/electron-browser/mcp.contribution.js';
 
 // Policy Export
-import './contrib/policyExport/electron-browser/policyExport.contribution.js';
 
 // Keybindings Export
-import './contrib/keybindingsExport/electron-browser/keybindingsExport.contribution.js';
 
 // System-wide (OS global) Keybindings
 import './contrib/keybindings/electron-browser/systemWideKeybindings.contribution.js';

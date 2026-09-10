@@ -2,6 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+// allow-any-unicode-comment-file -- comentarios em portugues usam acentuacao.
 
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 
@@ -24,6 +25,13 @@ export interface ILocalGitService {
 	checkout(operationId: string, repoPath: string, treeish: string, detached?: boolean): Promise<void>;
 	checkoutCommit(operationId: string, repoPath: string, commit: string): Promise<void>;
 	revParse(repoPath: string, ref: string): Promise<string>;
+	/**
+	 * Conteúdo de um arquivo no `HEAD`, ou `undefined` quando não há versão
+	 * anterior: arquivo novo, repositório sem commits ou caminho fora do repositório.
+	 *
+	 * `repoPath` é um caminho nativo; `filePath` é relativo à raiz, com `/`.
+	 */
+	show(repoPath: string, filePath: string): Promise<string | undefined>;
 	fetch(operationId: string, repoPath: string): Promise<void>;
 	revListCount(repoPath: string, fromRef: string, toRef: string): Promise<number>;
 	cancel(operationId: string): Promise<void>;

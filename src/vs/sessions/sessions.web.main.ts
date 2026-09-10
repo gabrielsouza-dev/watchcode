@@ -155,7 +155,6 @@ import '../workbench/contrib/localization/browser/localization.contribution.js';
 import '../workbench/contrib/performance/browser/performance.web.contribution.js';
 import '../workbench/contrib/preferences/browser/keyboardLayoutPicker.js';
 import '../workbench/contrib/debug/browser/extensionHostDebugService.js';
-import '../workbench/contrib/welcomeBanner/browser/welcomeBanner.contribution.js';
 
 // Web tunnel agent host — discovers tunnels via Dev Tunnels REST API and connects via relay
 import './contrib/providers/remoteAgentHost/browser/webTunnelAgentHostService.contribution.js';
@@ -217,9 +216,7 @@ import '../workbench/contrib/tasks/browser/taskService.js';
 import '../workbench/contrib/tags/browser/workspaceTagsService.js';
 import '../workbench/contrib/issue/browser/issue.contribution.js';
 import '../workbench/contrib/surveys/browser/survey.contribution.js';
-import '../workbench/contrib/splash/browser/splash.contribution.js';
 import '../workbench/contrib/remote/browser/remoteStartEntry.contribution.js';
-import '../workbench/contrib/processExplorer/browser/processExplorer.web.contribution.js';
 import '../workbench/contrib/browserView/browser/browserView.contribution.js';
 import './browser/sessions.web.contribution.js';
 

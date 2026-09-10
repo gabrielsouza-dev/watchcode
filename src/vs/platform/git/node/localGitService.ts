@@ -2,6 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+// allow-any-unicode-comment-file -- comentarios em portugues usam acentuacao.
 
 import * as cp from 'child_process';
 import { CancellationError } from '../../../base/common/errors.js';
@@ -158,6 +159,16 @@ export class LocalGitService implements ILocalGitService {
 
 	async revParse(repoPath: string, ref: string): Promise<string> {
 		return (await this._exec(generateUuid(), ['rev-parse', ref], repoPath)).trim();
+	}
+
+	async show(repoPath: string, filePath: string): Promise<string | undefined> {
+		try {
+			return await this._exec(generateUuid(), ['show', `HEAD:${filePath}`], repoPath);
+		} catch {
+			// Sem versão anterior — arquivo novo, repositório sem commits ou caminho
+			// inválido — a ausência de baseline não é um erro para quem pergunta.
+			return undefined;
+		}
 	}
 
 	async fetch(operationId: string, repoPath: string): Promise<void> {
