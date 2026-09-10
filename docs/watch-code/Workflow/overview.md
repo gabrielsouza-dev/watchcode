@@ -130,7 +130,8 @@ interface ChangeEvent {
   fileUri: string;
   /** Ausente quando não houve baseline: o evento é marcado como parcial. */
   beforeHash?: string;
-  afterHash: string;
+  /** Ausente quando o arquivo foi removido: o evento registra a remoção. */
+  afterHash?: string;
   linesChanged?: [number, number][];
   timestamp: number;
   status: 'current' | 'history';
@@ -244,7 +245,7 @@ O critério é o tipo de acoplamento de cada módulo inútil ao produto:
 | E1-T1 | Contratos do evento | Interfaces `ChangeEvent`/`ChangeSession`, versão de schema, validação e testes | — | feito (revisões 3 e 4; falta pipeline do repositório) |
 | E1-T2 | Ledger e snapshots | Gravação/leitura de eventos, store endereçado por hash, hash de arquivo, persistência por workspace | E1-T1 | feito (44 testes no módulo) |
 | E1-T3 | Baseline do "antes" | Estado anterior por git (`HEAD`) e por store de sombra; regra do evento parcial quando não há baseline | E1-T2 | feito (64 testes no módulo; 2 testes manuais pendentes) |
-| E1-T4 | Watcher do workspace | Observação do disco, detecção de escrita externa, agrupamento por pausa e criação do evento de origem `agent` | E1-T3 | pendente |
+| E1-T4 | Watcher do workspace | Observação do disco, detecção de escrita externa, agrupamento por pausa e criação do evento de origem `agent` | E1-T3 | feito (85 testes no módulo; 1 teste manual pendente) |
 | E1-T5 | Controle de observação | Comando e indicador de estado para **ativar/desativar** a observação pela interface; desligado, nenhuma sessão é aberta; estado refletido no status | E1-T4 | pendente |
 | E1-T6 | Fechamento da E1 | Um script (sem agente nenhum) altera arquivos e cada alteração aparece no ledger com antes/depois corretos, com a observação ligada | E1-T5 | pendente |
 
@@ -259,6 +260,7 @@ O critério é o tipo de acoplamento de cada módulo inútil ao produto:
 | E2-T3 | Anterior/Próximo | Comandos, keybindings e seleção do evento ativo na lista | E2-T2 | pendente |
 | E2-T4 | Salto ao local | Abrir o arquivo, revelar e selecionar as linhas; tratar arquivo ausente e entrada `history` | E2-T3 | pendente |
 | E2-T5 | Fechamento da E2 | Percorrer em sequência todas as alterações de uma sessão do agente | E2-T4 | pendente |
+| E2-T6 | Novo e visualizado | Selo por alteração, gravado no próprio evento; o lote é **derivado** — fica visualizado quando todas as suas alterações estiverem | E2-T5 | pendente |
 
 ### Etapa E3 — Diff, cores e modos
 
