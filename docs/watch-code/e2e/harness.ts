@@ -26,8 +26,13 @@ export const APP_START_TIMEOUT_MS = 180000;
 /** Tempo de acomodação depois de o workbench aparecer, antes da primeira escrita. */
 export const APP_SETTLE_MS = 3000;
 
-/** Arquivo que serve de sonda de prontidão da observação. */
-export const WARM_UP_FILE = 'aquecimento.txt';
+/**
+ * Arquivo que serve de sonda de prontidão da observação.
+ *
+ * Extensão de código, como qualquer arquivo de teste: a sonda é escrita e
+ * conferida em toda execução, e o produto observa o disco sem olhar a linguagem.
+ */
+export const WARM_UP_FILE = 'aquecimento.ts';
 
 /** Pasta observada e perfil isolado de um cenário. */
 export interface IAppPaths {
@@ -45,6 +50,8 @@ export interface ILedgerEvent {
 	readonly fileUri: string;
 	readonly beforeHash?: string;
 	readonly afterHash?: string;
+	/** Faixas alteradas, como o produto as gravou; ausente quando não houve faixa. */
+	readonly linesChanged?: readonly (readonly [number, number])[];
 	readonly timestamp: number;
 	readonly status: string;
 }
@@ -404,6 +411,24 @@ export class LedgerReader {
 		const path = join(this.snapshotsDir, contentHash);
 
 		return existsSync(path) ? readFileSync(path, 'utf8') : undefined;
+	}
+
+	/**
+	 * Espera o ledger acumular uma quantidade de eventos.
+	 *
+	 * A rajada de uma sessão não tem arquivo-sentinela: os eventos chegam por
+	 * vários arquivos ao mesmo tempo, e o que se espera é o conjunto.
+	 */
+	async waitForCount(minimum: number, timeoutMs = 30000): Promise<readonly ILedgerEvent[]> {
+		const deadline = Date.now() + timeoutMs;
+		let found = this.events();
+
+		while (found.length < minimum && Date.now() < deadline) {
+			await delay(250);
+			found = this.events();
+		}
+
+		return found;
 	}
 
 	/** Espera um arquivo acumular uma quantidade de eventos, e devolve todos eles. */

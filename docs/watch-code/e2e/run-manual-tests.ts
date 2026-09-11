@@ -13,7 +13,7 @@
 // o resultado lido do disco — o ledger é a mesma fonte de verdade da leitura manual.
 
 import { execFileSync, type ChildProcess } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
 import { chromium, type Browser, type Locator, type Page } from 'playwright';
@@ -37,6 +37,7 @@ import {
 	logTail,
 	scratchPaths,
 	sha1,
+	targetOf,
 	writeWorkspaceFile,
 	type IAppPaths,
 	type ILedgerEvent
@@ -198,17 +199,65 @@ const LONG_FILE_LINES = 200;
  */
 const SCROLL_STEP_PX = 20;
 
+/** Um arquivo que a sessao do T-0010 altera. */
+interface ISessionFile {
+	readonly file: string;
+	readonly language: Linguagem;
+	/** Linha marcada como alterada. */
+	readonly line: number;
+	/** Total de linhas do arquivo. */
+	readonly total: number;
+}
+
+/**
+ * Os quatro arquivos que a sessao altera: tres extensoes e uma subpasta.
+ *
+ * Cada um muda numa linha diferente, e nenhum deles recebe duas escritas na
+ * primeira sessao — a segunda escrita de um mesmo arquivo e o que a fase 2 prova.
+ */
+const SESSION_FILES: readonly ISessionFile[] = [
+	{ file: 'src/alvo.ts', language: 'ts', line: 100, total: 200 },
+	{ file: 'src/apoio.js', language: 'js', line: 60, total: 120 },
+	{ file: 'src/servico.cs', language: 'cs', line: 30, total: 80 },
+	{ file: 'src/modulo/indice.ts', language: 'ts', line: 25, total: 40 }
+];
+
+/** Arquivo que a sessao cria: o primeiro evento dele nasce sem "antes". */
+const SESSION_NEW_FILE = 'src/modulo/regra.ts';
+const SESSION_NEW_TOTAL = 12;
+
+/** Arquivo que a sessao remove: o evento dele nasce sem "depois". */
+const SESSION_REMOVED_FILE = 'src/legado.js';
+
+/** Quantas alteracoes a sessao do T-0010 produz, sem contar a sonda de aquecimento. */
+const SESSION_EVENT_COUNT = 6;
+
+/**
+ * Intervalo entre duas escritas da sessao, em milissegundos.
+ *
+ * Abaixo da pausa do agrupador (1500 ms), para tudo cair numa sessao so; acima da
+ * janela em que o watcher coalesce entregas, para cada escrita ter o seu instante e
+ * a ordem da lista poder ser conferida contra a ordem do ledger.
+ */
+const SESSION_WRITE_GAP_MS = 400;
+
 /** O dialeto de cada arquivo de teste. */
 type Linguagem = 'ts' | 'js' | 'cs';
 
-/** 200 linhas de codigo, com a linha 100 marcada como alterada. */
-function longContent(linguagem: Linguagem, alterada: boolean): string {
+/**
+ * Um arquivo de codigo com a linha marcada como alterada.
+ *
+ * A linha e o total sao parametros porque a sessao do T-0010 muda cada arquivo
+ * numa linha diferente: com a linha fixa, um salto que sempre caisse no mesmo
+ * lugar passaria despercebido.
+ */
+function longContent(linguagem: Linguagem, alterada: boolean, linha = TARGET_LINE, total = LONG_FILE_LINES): string {
 	const linhas: string[] = [];
 
-	for (let numero = 1; numero <= LONG_FILE_LINES; numero++) {
+	for (let numero = 1; numero <= total; numero++) {
 		const declaracao = statementFor(linguagem, numero);
 
-		linhas.push(numero === TARGET_LINE && alterada ? declaracao + ' // alterado pelo agente' : declaracao);
+		linhas.push(numero === linha && alterada ? declaracao + ' // alterado pelo agente' : declaracao);
 	}
 
 	return linhas.join('\n') + '\n';
@@ -655,10 +704,129 @@ async function waitForNewNotification(page: Page, antes: readonly string[], time
 	return [];
 }
 
+/** A segunda faixa da linha selecionada: pasta, linhas, hora e origem. */
+async function selectedRowDetail(page: Page): Promise<string> {
+	const detail = page.locator('.watch-code-timeline .monaco-list-row.selected .detail').first();
+
+	return await detail.count() === 0 ? '' : await detail.textContent() ?? '';
+}
+
 /** Clica na linha da lista pela posicao. */
 async function clickTimelineRow(page: Page, index: number): Promise<void> {
 	await page.locator('.watch-code-timeline .monaco-list-row').nth(index).click();
 	await delay(1500);
+}
+
+/** Ultimo segmento do caminho: e o nome que a linha mostra. */
+function fileNameOf(fileUri: string): string {
+	return fileUri.substring(fileUri.lastIndexOf('/') + 1);
+}
+
+/** Caminho ate o arquivo, sem o nome; vazio quando o arquivo esta na raiz. */
+function folderPathOf(fileUri: string): string {
+	const separator = fileUri.lastIndexOf('/');
+
+	return separator < 0 ? '' : fileUri.substring(0, separator);
+}
+
+/** A faixa de linhas no formato da view: '12', '12-14' ou varios, separados por virgula. */
+function lineRangesOf(event: ILedgerEvent): string {
+	return (event.linesChanged ?? []).map(range => range[0] === range[1] ? String(range[0]) : range[0] + '-' + range[1]).join(', ');
+}
+
+/** Hora local no formato HH:MM, o mesmo que a linha mostra. */
+function clockOf(timestamp: number): string {
+	const date = new Date(timestamp);
+
+	return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+}
+
+/**
+ * A segunda faixa que a linha deve mostrar para um evento.
+ *
+ * E a mesma montagem da view: pasta, linhas, hora e origem, sem as partes vazias.
+ */
+function expectedRowDetail(event: ILedgerEvent): string {
+	return [folderPathOf(event.fileUri), lineRangesOf(event), clockOf(event.timestamp), event.attribution === 'hook' ? 'Hook' : 'Disk']
+		.filter(part => part.length > 0)
+		.join(' \u00b7 ');
+}
+
+/**
+ * Quantas linhas o editor mostra para um conteudo.
+ *
+ * O conteudo dos testes termina em quebra de linha, e o editor conta a linha
+ * vazia que vem depois dela: cinco linhas de texto dao seis no modelo.
+ */
+function editorLineCount(content: string): number {
+	return content.replace(/\r\n/g, '\n').split('\n').length;
+}
+
+/**
+ * A linha em que o cursor deve parar: a ultima da faixa, limitada ao arquivo.
+ *
+ * Sem faixa, ou com o arquivo fora do disco, nao ha salto para conferir.
+ */
+function expectedCursorLine(event: ILedgerEvent, workspace: string): number | undefined {
+	const range = event.linesChanged?.[0];
+	const target = targetOf(workspace, event.fileUri);
+
+	if (!range || !existsSync(target)) {
+		return undefined;
+	}
+
+	return Math.min(range[1], editorLineCount(readFileSync(target, 'utf8')));
+}
+
+/** O que a lista mostrou num passo da travessia. */
+interface ITimelineStep {
+	readonly name: string;
+	readonly detail: string;
+	readonly editor: string;
+	readonly position: string;
+	/** Avisos visiveis no instante do passo. */
+	readonly notices: readonly string[];
+}
+
+/**
+ * Volta o evento ativo para a primeira linha da lista.
+ *
+ * Sem evento ativo o "anterior" entra pela ponta de baixo, e nas pontas o passo
+ * para: repetir leva ao comeco e de la nao sai.
+ */
+async function restartAtFirstRow(page: Page, rows: number): Promise<void> {
+	for (let press = 0; press <= rows; press++) {
+		await page.keyboard.press('Shift+F5');
+		await delay(700);
+	}
+}
+
+/**
+ * Anda uma linha por vez com o F5 e devolve o que a lista mostrou.
+ *
+ * A lista e virtualizada: so algumas linhas existem no DOM de cada vez. A leitura
+ * e sempre a da linha selecionada, que o proprio passo traz para a area visivel —
+ * e o gesto de quem percorre a sessao inteira.
+ */
+async function walkForward(page: Page, rows: number): Promise<readonly ITimelineStep[]> {
+	const steps: ITimelineStep[] = [];
+
+	for (let index = 0; index < rows; index++) {
+		steps.push({
+			name: (await timelineSelectedNames(page))[0] ?? '',
+			detail: await selectedRowDetail(page),
+			editor: await activeEditorName(page),
+			position: await editorPosition(page),
+			notices: await notificationTexts(page)
+		});
+
+		if (index < rows - 1) {
+			await page.keyboard.press('F5');
+			await delay(1800);
+		}
+	}
+
+	return steps;
 }
 
 /** Texto do item de posicao da barra de status, no formato "Ln 2, Col 17". */
@@ -1615,6 +1783,130 @@ const TESTS: readonly IManualTest[] = [
 
 		t.check('passo 2: a barra rolou a vista antes do Enter', rolagemDepois > rolagemAntes, 'cursor da barra ' + rolagemAntes + ' -> ' + rolagemDepois);
 		t.check('passo 2: o salto nao rola a tela', rolagemDoSalto === rolagemDepois, 'cursor da barra ' + rolagemDepois + ' -> ' + rolagemDoSalto);
+	}
+},
+{
+	id: 'T-0010',
+	title: 'Sessao inteira percorrida',
+	prepare: workspace => commitWorkspace(workspace, [
+		...SESSION_FILES.map(item => [item.file, longContent(item.language, false, item.line, item.total)] as const),
+		[SESSION_REMOVED_FILE, shortContent('js')]
+	]),
+	run: async (session, t) => {
+		const page = session.page;
+		const workspace = session.paths.workspace;
+
+		// A view nasce expandida: o clique aqui so garante que ela esta aberta.
+		if (!await timelineExpanded(page)) {
+			await toggleTimelineView(page);
+		}
+
+		await waitForTimelineRow(page, WARM_UP_FILE);
+
+		// Fase 1: a sessao inteira. As escritas ficam separadas por menos que a pausa
+		// do agrupador (1500 ms) e mais que a janela de coalescencia do watcher.
+		for (const { file, language, line, total } of SESSION_FILES) {
+			writeWorkspaceFile(workspace, file, longContent(language, true, line, total));
+			await delay(SESSION_WRITE_GAP_MS);
+		}
+
+		writeWorkspaceFile(workspace, SESSION_NEW_FILE, longContent('ts', false, 1, SESSION_NEW_TOTAL));
+		await delay(SESSION_WRITE_GAP_MS);
+		rmSync(targetOf(workspace, SESSION_REMOVED_FILE));
+
+		await session.ledger.waitForCount(SESSION_EVENT_COUNT + 1, EVENT_TIMEOUT_MS);
+		await waitUntilQuiet(session.ledger);
+
+		const firstPhase = session.ledger.events();
+		const changes = firstPhase.slice(1);
+		const sessions = new Set(changes.map(event => event.sessionId));
+
+		t.check('fase 1: o ledger tem a sonda e as seis alteracoes', firstPhase.length === SESSION_EVENT_COUNT + 1 && firstPhase[0].fileUri === WARM_UP_FILE, 'eventos=' + firstPhase.length + ' primeiro=' + JSON.stringify(firstPhase[0]?.fileUri));
+		t.check('fase 1: a sonda usa extensao de codigo', WARM_UP_FILE.endsWith('.ts'), 'sonda=' + WARM_UP_FILE);
+		t.check('fase 1: as seis alteracoes estao na mesma sessao', sessions.size === 1, 'sessoes=' + sessions.size);
+
+		const expectedRanges = new Map<string, string>(SESSION_FILES.map(item => [item.file, String(item.line)]));
+
+		expectedRanges.set(SESSION_NEW_FILE, '1-' + SESSION_NEW_TOTAL);
+		expectedRanges.set(SESSION_REMOVED_FILE, '');
+
+		const wrongRanges = changes.filter(event => lineRangesOf(event) !== expectedRanges.get(event.fileUri));
+
+		t.check('fase 1: cada alteracao tem a faixa de linhas esperada', wrongRanges.length === 0 && changes.length === SESSION_EVENT_COUNT, 'faixas=' + JSON.stringify(changes.map(event => fileNameOf(event.fileUri) + '=' + lineRangesOf(event))));
+
+		// Ida: uma linha por vez, sempre conferindo contra o evento do ledger.
+		await restartAtFirstRow(page, firstPhase.length);
+
+		const forward = await walkForward(page, firstPhase.length);
+
+		for (let index = 0; index < firstPhase.length; index++) {
+			const event = firstPhase[index];
+			const step = forward[index];
+			const name = fileNameOf(event.fileUri);
+			const cursor = expectedCursorLine(event, workspace);
+			const position = 'ida ' + (index + 1) + ': ';
+
+			t.check(position + 'a linha e a do evento do ledger', step.name === name && step.detail === expectedRowDetail(event), 'linha=' + JSON.stringify(step.name + ' | ' + step.detail) + ' evento=' + JSON.stringify(name + ' | ' + expectedRowDetail(event)));
+
+			if (cursor === undefined) {
+				t.check(position + 'o arquivo removido avisa em vez de abrir', step.editor !== name && step.notices.some(text => text.includes('removed the file')), 'editor=' + JSON.stringify(step.editor) + ' avisos=' + JSON.stringify(step.notices));
+			} else {
+				t.check(position + 'o cursor cai na faixa do evento', step.editor === name && step.position.startsWith('Ln ' + cursor + ','), 'editor=' + JSON.stringify(step.editor) + ' posicao=' + JSON.stringify(step.position));
+			}
+		}
+
+		// Volta: o Shift+F5 percorre a mesma lista ao contrario.
+		const backward: string[] = [];
+
+		for (let index = 0; index < firstPhase.length; index++) {
+			backward.push((await timelineSelectedNames(page))[0] ?? '');
+
+			if (index < firstPhase.length - 1) {
+				await page.keyboard.press('Shift+F5');
+				await delay(1500);
+			}
+		}
+
+		const expectedBackward = firstPhase.map(event => fileNameOf(event.fileUri)).reverse();
+
+		t.check('volta: o Shift+F5 percorre a mesma lista ao contrario', backward.join(' > ') === expectedBackward.join(' > '), 'volta=' + JSON.stringify(backward));
+
+		// Fase 2: uma escrita nova, noutra sessao, com o app aberto.
+		await delay(BETWEEN_SESSIONS_MS);
+
+		writeWorkspaceFile(workspace, SESSION_FILES[0].file, shortContent('ts'));
+
+		await session.ledger.waitForCount(firstPhase.length + 1, EVENT_TIMEOUT_MS);
+		await waitUntilQuiet(session.ledger);
+
+		const secondPhase = session.ledger.events();
+		const newest = secondPhase[secondPhase.length - 1];
+		const oldIndex = secondPhase.findIndex(event => event.fileUri === SESSION_FILES[0].file);
+		const older = secondPhase[oldIndex];
+
+		t.check('fase 2: a entrada antiga do alvo vira historica', older.status === 'history' && newest.status === 'current' && newest.fileUri === SESSION_FILES[0].file, 'antiga=' + older.status + ' nova=' + newest.status);
+
+		await restartAtFirstRow(page, secondPhase.length);
+
+		const afterSecond = await walkForward(page, secondPhase.length);
+		const names = afterSecond.map(step => step.name);
+		const expectedNames = secondPhase.map(event => fileNameOf(event.fileUri));
+
+		t.check('fase 2: a alteracao nova entra no fim da lista', names.join(' > ') === expectedNames.join(' > '), 'lista=' + JSON.stringify(names));
+
+		const kept = afterSecond.slice(0, firstPhase.length).map(step => step.name + ' | ' + step.detail);
+		const before = forward.map(step => step.name + ' | ' + step.detail);
+
+		t.check('fase 2: as linhas anteriores continuam iguais, na mesma ordem', kept.join(' > ') === before.join(' > '), 'antes=' + JSON.stringify(before));
+
+		// A entrada antiga do alvo aponta para a linha 100, que ja nao existe no arquivo
+		// encurtado: o salto para na ultima linha e nao avisa. A pendencia esta
+		// registrada desde o T-0008, e o aviso e escopo da E5-T1.
+		const shortenedLines = editorLineCount(shortContent('ts'));
+		const oldEntry = afterSecond[oldIndex];
+
+		t.check('fase 2: a entrada antiga para na ultima linha do arquivo encurtado', oldEntry.position.startsWith('Ln ' + shortenedLines + ','), 'posicao=' + JSON.stringify(oldEntry.position) + ' linhas do arquivo=' + shortenedLines);
+		t.check('fase 2: o salto para a entrada antiga nao avisa', !oldEntry.notices.some(text => text.includes('no longer in the workspace')), 'avisos=' + JSON.stringify(oldEntry.notices));
 	}
 },
 ];
