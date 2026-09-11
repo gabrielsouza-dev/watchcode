@@ -19,6 +19,8 @@ Este arquivo estabelece o padrão de desenvolvimento e o funcionamento dos workf
 - Não altere arquivos fora do escopo da tarefa.
 - Não assuma decisões arquiteturais ou de negócio relevantes.
 - Decisões que possam alterar arquitetura, comportamento, contratos, dependências ou regras de negócio devem ser submetidas ao usuário antes da implementação.
+- **Decisão óbvia não se pergunta.** Quando só existe um caminho razoável, ou quando um dos caminhos é claramente melhor e os outros cobram um preço que o produto não quer pagar (risco para o resto do IDE, perda de informação legítima, contrato maior sem ganho), decida, siga em frente e não interrompa o fluxo. A decisão e o motivo ficam registrados no artefato da etapa (`PLAN` ou `SPEC`), e o usuário é informado no relatório.
+- A pergunta se justifica quando as opções têm preços comparáveis, quando a escolha muda o que o produto promete, ou quando a preferência do usuário é o único desempate.
 - Decisões técnicas locais, reversíveis e consistentes com os padrões existentes podem ser tomadas autonomamente.
 - Cada etapa deve consumir o artefato da etapa anterior, executar apenas sua responsabilidade e produzir o resultado esperado para a próxima etapa.
 
