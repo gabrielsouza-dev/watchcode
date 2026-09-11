@@ -12,13 +12,14 @@ import { getDefaultHoverDelegate } from '../../../../base/browser/ui/hover/hover
 import { IListRenderer, IListVirtualDelegate } from '../../../../base/browser/ui/list/list.js';
 import { IListAccessibilityProvider } from '../../../../base/browser/ui/list/listWidget.js';
 import { Codicon } from '../../../../base/common/codicons.js';
-import { MutableDisposable } from '../../../../base/common/lifecycle.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { localize } from '../../../../nls.js';
 import { ChangeEvent, ChangeEventAttribution } from '../../../../platform/changeLedger/common/changeEvent.js';
 import { ITimelineService } from '../../../../platform/changeLedger/common/timelineService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { IContextKey, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -28,6 +29,7 @@ import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { ViewPane, IViewPaneOptions } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
+import { NavigationDirection, stepActiveId } from '../common/timelineNavigation.js';
 import { buildTimelineRows, TimelineRow } from '../common/timelineRows.js';
 
 /** Altura de cada linha: duas faixas de texto. */
@@ -41,6 +43,15 @@ const ERROR_MESSAGE = localize('watchCode.timeline.error', "The timeline could n
 
 /** Separador dos trechos da segunda faixa da linha. */
 const DETAIL_SEPARATOR = ' \u00b7 ';
+
+/**
+ * Diz se ha alteracoes na linha do tempo.
+ *
+ * Comanda a visibilidade dos botoes de navegacao e a validade das teclas. Fica no
+ * contexto global — e nao no escopado da view — para a tecla valer com o foco no
+ * editor.
+ */
+export const TIMELINE_HAS_EVENTS = new RawContextKey<boolean>('watchCodeTimeline.hasEvents', false);
 
 /** Como o evento foi obtido, escrito para quem le a lista. */
 function originLabel(attribution: ChangeEventAttribution): string {
@@ -143,11 +154,27 @@ export class WatchCodeTimelineView extends ViewPane {
 
 	private rows: TimelineRow[] = [];
 
+	/** Evento por id: o evento ativo precisa dele inteiro, e nao so da linha. */
+	private readonly events = new Map<string, ChangeEvent>();
+
 	/** Eventos gravados antes de a lista carregar: aplicados logo depois dela. */
 	private readonly pending: ChangeEvent[] = [];
 
+	/** Id do evento ativo; ausente enquanto o usuario nao parou em nenhum. */
+	private activeId: string | undefined;
+
+	/** Escrita na selecao em andamento: o aviso da lista nao volta como acao do usuario. */
+	private syncing = false;
+
+	private readonly _onDidChangeActive = this._register(new Emitter<ChangeEvent | undefined>());
+
+	/** Avisa quem observa quando o evento ativo muda. */
+	readonly onDidChangeActive: Event<ChangeEvent | undefined> = this._onDidChangeActive.event;
+
+	private readonly hasEvents: IContextKey<boolean>;
+
 	private loaded = false;
-	private loading = false;
+	private loading: Promise<void> | undefined;
 	private list: WorkbenchList<TimelineRow> | undefined;
 	private listContainer: HTMLElement | undefined;
 	private message: HTMLElement | undefined;
@@ -172,6 +199,9 @@ export class WatchCodeTimelineView extends ViewPane {
 		// A escuta nasce aqui, e nao no corpo: evento gravado antes de a view ser
 		// desenhada nao pode se perder.
 		this._register(this.timelineService.onDidChange(change => this.onDidRecord(change.added)));
+
+		this.hasEvents = TIMELINE_HAS_EVENTS.bindTo(contextKeyService);
+		this._register(toDisposable(() => this.hasEvents.reset()));
 	}
 
 	protected override renderBody(container: HTMLElement): void {
@@ -190,12 +220,22 @@ export class WatchCodeTimelineView extends ViewPane {
 			{
 				identityProvider: { getId: (row: TimelineRow) => row.id },
 				accessibilityProvider: new TimelineAccessibilityProvider(),
+				// Um evento ativo por vez: com selecao multipla o conceito se perde.
+				multipleSelectionSupport: false,
 				overrideStyles: this.getLocationBasedColors().listOverrideStyles
 			}
 		) as WorkbenchList<TimelineRow>);
 
+		this._register(this.list.onDidChangeSelection(event => this.onDidSelect(event.elements[0])));
+
 		this.message = append(body, $('.watch-code-timeline-message'));
 		this.messageText = append(this.message, $('span'));
+
+		// A lista pode ter sido lida antes de este corpo existir: navegar com a view
+		// recolhida carrega a linha do tempo sem desenhar nada.
+		this.list.splice(0, 0, this.rows);
+		this.renderState();
+		this.syncSelection();
 
 		void this.load();
 	}
@@ -207,27 +247,34 @@ export class WatchCodeTimelineView extends ViewPane {
 	}
 
 	/** Le a linha do tempo uma vez; depois disso a lista so cresce. */
-	private async load(): Promise<void> {
-		if (this.loaded || this.loading) {
-			return;
+	private load(): Promise<void> {
+		if (this.loaded) {
+			return Promise.resolve();
 		}
 
-		this.loading = true;
+		// Carga em andamento e compartilhada: quem chega no meio espera a mesma leitura,
+		// em vez de navegar sobre uma lista que ainda vai chegar.
+		return this.loading ??= this.doLoad();
+	}
 
+	private async doLoad(): Promise<void> {
 		try {
 			const events = await this.timelineService.getEvents();
 
+			this.events.clear();
+			this.remember(events);
 			this.rows = buildTimelineRows(events);
 			this.list?.splice(0, this.list.length, this.rows);
 			this.applyPending();
 			this.loaded = true;
 			this.renderState();
+			this.syncSelection();
 		} catch {
 			// A proxima tentativa volta ao disco: o servico limpa o estado de carga
 			// quando a leitura falha (E2-T1), entao tentar de novo e so perguntar.
 			this.showMessage(ERROR_MESSAGE, true);
 		} finally {
-			this.loading = false;
+			this.loading = undefined;
 		}
 	}
 
@@ -248,11 +295,13 @@ export class WatchCodeTimelineView extends ViewPane {
 
 	/** Acrescenta os eventos que ainda nao estao na lista. */
 	private append(events: readonly ChangeEvent[]): void {
-		const missing = events.filter(event => !this.rows.some(row => row.id === event.id));
+		const missing = events.filter(event => !this.events.has(event.id));
 
 		if (missing.length === 0) {
 			return;
 		}
+
+		this.remember(missing);
 
 		const rows = buildTimelineRows(missing);
 
@@ -261,9 +310,72 @@ export class WatchCodeTimelineView extends ViewPane {
 		this.renderState();
 	}
 
+	/** Guarda o evento inteiro por id: a linha e derivada dele, nao o substitui. */
+	private remember(events: readonly ChangeEvent[]): void {
+		for (const event of events) {
+			this.events.set(event.id, event);
+		}
+	}
+
+	/** Ponto de entrada dos comandos: garante a carga e move o evento ativo. */
+	async navigate(direction: NavigationDirection): Promise<void> {
+		await this.load();
+
+		this.moveActive(direction);
+	}
+
+	/** O evento ativo, quando existe. */
+	get activeEvent(): ChangeEvent | undefined {
+		return this.activeId === undefined ? undefined : this.events.get(this.activeId);
+	}
+
+	/** Anda uma casa na lista, com as regras de borda do modulo puro. */
+	private moveActive(direction: NavigationDirection): void {
+		const next = stepActiveId(this.rows.map(row => row.id), this.activeId, direction);
+
+		if (next === undefined || next === this.activeId) {
+			return;
+		}
+
+		this.activeId = next;
+		this.syncSelection();
+		this._onDidChangeActive.fire(this.events.get(next));
+	}
+
+	/** O clique e as setas da lista tambem definem o evento ativo. */
+	private onDidSelect(row: TimelineRow | undefined): void {
+		if (this.syncing || row === undefined || row.id === this.activeId) {
+			return;
+		}
+
+		this.activeId = row.id;
+		this._onDidChangeActive.fire(this.events.get(row.id));
+	}
+
+	/** Poe a selecao da lista no evento ativo, sem que a lista responda de volta. */
+	private syncSelection(): void {
+		const index = this.rows.findIndex(row => row.id === this.activeId);
+
+		if (!this.list || index < 0) {
+			return;
+		}
+
+		this.syncing = true;
+
+		try {
+			this.list.setSelection([index]);
+			this.list.reveal(index);
+		} finally {
+			this.syncing = false;
+		}
+	}
+
 	/** Lista com conteudo, ou a mensagem de que ainda nao houve alteracao. */
 	private renderState(): void {
-		this.showMessage(this.rows.length === 0 ? EMPTY_MESSAGE : undefined, false);
+		const empty = this.rows.length === 0;
+
+		this.showMessage(empty ? EMPTY_MESSAGE : undefined, false);
+		this.hasEvents.set(!empty);
 	}
 
 	/** Troca a mensagem do corpo e, quando for o caso, o botao de tentar de novo. */

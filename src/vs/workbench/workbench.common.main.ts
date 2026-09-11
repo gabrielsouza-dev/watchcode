@@ -478,5 +478,6 @@ import './contrib/opener/browser/opener.contribution.js';
 import './contrib/watchCode/browser/hiddenViews.contribution.js';
 import './contrib/watchCode/browser/observationControl.contribution.js';
 import './contrib/watchCode/browser/timeline.contribution.js';
+import './contrib/watchCode/browser/timelineNavigation.contribution.js';
 
 //#endregion

@@ -70,6 +70,9 @@ const ON_WRITE = 'mudanca com observacao ligada\n';
 /** Arquivo que os testes observam. */
 const NOTE_FILE = 'note.txt';
 
+/** Terceiro arquivo do T-0006: nomes distintos deixam claro qual linha esta selecionada. */
+const EXTRA_FILE = 'extra.txt';
+
 /** Textos esperados do indicador e do tooltip, copiados da contribuição. */
 const ACTIVE_TOOLTIP = 'Watch Code is observing the workspace. Click to turn observation off.';
 const INACTIVE_TOOLTIP = 'Watch Code is not observing the workspace. Click to turn observation on.';
@@ -186,6 +189,48 @@ async function waitForTimelineRow(page: Page, file: string, timeoutMs = EVENT_TI
 	}
 
 	return -1;
+}
+
+/**
+ * Rotulos das acoes de navegacao mostradas no titulo da view.
+ *
+ * O titulo tem outras acoes (o menu "..."), entao a conta olha so os nossos dois
+ * rotulos; o prefixo tolera o atalho que o VS Code as vezes acrescenta ao rotulo.
+ */
+async function timelineNavigationLabels(page: Page): Promise<readonly string[]> {
+	const labels: string[] = [];
+
+	for (const item of await page.locator(`${TIMELINE_HEADER_SELECTOR} .actions .action-label`).all()) {
+		const label = await item.getAttribute('aria-label') ?? '';
+
+		if (label.startsWith('Previous Change') || label.startsWith('Next Change')) {
+			labels.push(label);
+		}
+	}
+
+	return labels;
+}
+
+/** Nomes das linhas selecionadas: mais de uma significa que o evento ativo nao e unico. */
+async function timelineSelectedNames(page: Page): Promise<readonly string[]> {
+	return await page.locator('.watch-code-timeline .monaco-list-row.selected .name').allTextContents();
+}
+
+/** Espera a selecao cair numa linha, e devolve os nomes selecionados. */
+async function waitForSelectedRow(page: Page, timeoutMs = 10000): Promise<readonly string[]> {
+	const deadline = Date.now() + timeoutMs;
+
+	while (Date.now() < deadline) {
+		const names = await timelineSelectedNames(page);
+
+		if (names.length > 0) {
+			return names;
+		}
+
+		await delay(200);
+	}
+
+	return [];
 }
 
 /** Espera um texto aparecer dentro de um elemento. */
@@ -776,6 +821,115 @@ const TESTS: readonly IManualTest[] = [
 		const listVisible = await page.locator('.watch-code-timeline .monaco-list').isVisible();
 
 		t.check('passo 8: recolhida, a lista sai de cena', !listVisible, 'lista visível=' + listVisible);
+	}
+},
+{
+	id: 'T-0006',
+	title: 'Anterior/Próximo na linha do tempo',
+	prepare: workspace => writeWorkspaceFile(workspace, NOTE_FILE, INITIAL_VERSION),
+	beforeWarmUp: async (session, t) => {
+		// Passo 1: sem nenhuma alteração registrada não há o que percorrer.
+		const labels = await timelineNavigationLabels(session.page);
+
+		t.check('passo 1: sem alteração, os botões de navegação não aparecem', labels.length === 0, 'ações=' + JSON.stringify(labels));
+	},
+	run: async (session, t) => {
+		const page = session.page;
+
+		// Passo 2: três alterações, medidas pela própria lista.
+		await waitForTimelineRow(page, WARM_UP_FILE);
+
+		writeWorkspaceFile(session.paths.workspace, NOTE_FILE, 'primeira versao de t-0006\n');
+		await session.ledger.waitForEvents(NOTE_FILE, 1, EVENT_TIMEOUT_MS);
+		await waitForTimelineRow(page, NOTE_FILE);
+
+		writeWorkspaceFile(session.paths.workspace, EXTRA_FILE, 'segunda versao de t-0006\n');
+		await session.ledger.waitForEvents(EXTRA_FILE, 1, EVENT_TIMEOUT_MS);
+		await waitForTimelineRow(page, EXTRA_FILE);
+		await waitUntilQuiet(session.ledger);
+
+		const ledged = session.ledger.eventsOf(WARM_UP_FILE).length + session.ledger.eventsOf(NOTE_FILE).length + session.ledger.eventsOf(EXTRA_FILE).length;
+
+		t.check('passo 2: o ledger registrou as três alterações', ledged === 3, 'eventos=' + ledged + ' / linhas na tela=' + JSON.stringify(await timelineRowNames(page)));
+
+		// Passo 3: com a view recolhida não há lista desenhada — e é assim que a navegação começa.
+		t.check('passo 3: a view começa recolhida', !await timelineExpanded(page), 'aria-expanded=' + await timelineHeader(page).first().getAttribute('aria-expanded'));
+
+		// Passo 4: o F5 abre a view, escolhe a alteração mais antiga e não rouba o foco.
+		const focusBefore = await page.evaluate('document.activeElement ? document.activeElement.className : ""');
+
+		await page.keyboard.press('F5');
+
+		const selected = await waitForSelectedRow(page);
+		const focusAfter = await page.evaluate('document.activeElement ? document.activeElement.className : ""');
+		const focusInList = await page.evaluate('!!document.activeElement && !!document.activeElement.closest(".watch-code-timeline")');
+
+		t.check('passo 4: o F5 abre a view', await timelineExpanded(page), 'aria-expanded=' + await timelineHeader(page).first().getAttribute('aria-expanded'));
+
+		const rows = await timelineRowNames(page);
+
+		t.check('passo 4: a lista mostra as três alterações, na ordem', rows.length === 3 && rows[0] === WARM_UP_FILE && rows[1] === NOTE_FILE && rows[2] === EXTRA_FILE, 'linhas=' + JSON.stringify(rows));
+
+		const labels = await timelineNavigationLabels(page);
+
+		t.check('passo 4: os dois botões de navegação aparecem no título', labels.length === 2 && labels[0].startsWith('Previous Change') && labels[1].startsWith('Next Change'), 'ações=' + JSON.stringify(labels));
+		t.check('passo 4: o primeiro F5 escolhe a alteração mais antiga', selected[0] === WARM_UP_FILE, 'selecionadas=' + JSON.stringify(selected));
+		t.check('passo 4: o foco não vai para a lista', !focusInList, 'foco antes=' + JSON.stringify(focusBefore) + ' depois=' + JSON.stringify(focusAfter));
+
+		// Passo 5: o passo anda nas duas direções.
+		await page.keyboard.press('F5');
+		await delay(400);
+		const forward = await timelineSelectedNames(page);
+
+		t.check('passo 5: o F5 seguinte anda uma linha', forward[0] === NOTE_FILE, 'selecionadas=' + JSON.stringify(forward));
+
+		await page.keyboard.press('Shift+F5');
+		await delay(400);
+		const backward = await timelineSelectedNames(page);
+
+		t.check('passo 5: o Shift+F5 volta uma linha', backward[0] === WARM_UP_FILE, 'selecionadas=' + JSON.stringify(backward));
+
+		// Passo 6: nas pontas o passo para, sem dar a volta.
+		await page.keyboard.press('Shift+F5');
+		await delay(400);
+		const atStart = await timelineSelectedNames(page);
+
+		t.check('passo 6: no começo, o anterior não dá a volta', atStart[0] === WARM_UP_FILE, 'selecionadas=' + JSON.stringify(atStart));
+
+		await page.keyboard.press('F5');
+		await page.keyboard.press('F5');
+		await delay(400);
+		const atEnd = await timelineSelectedNames(page);
+
+		t.check('passo 6: dois F5 chegam na última alteração', atEnd[0] === EXTRA_FILE, 'selecionadas=' + JSON.stringify(atEnd));
+
+		await page.keyboard.press('F5');
+		await delay(400);
+		const pastEnd = await timelineSelectedNames(page);
+
+		t.check('passo 6: no fim, o próximo não dá a volta', pastEnd[0] === EXTRA_FILE, 'selecionadas=' + JSON.stringify(pastEnd));
+
+		// Passo 7: o clique define o evento ativo, e a navegação continua dele.
+		await page.locator('.watch-code-timeline .monaco-list-row').nth(1).click();
+		await delay(400);
+		const clicked = await timelineSelectedNames(page);
+
+		t.check('passo 7: o clique escolhe a linha clicada', clicked[0] === NOTE_FILE, 'selecionadas=' + JSON.stringify(clicked));
+
+		await page.keyboard.press('F5');
+		await delay(400);
+		const afterClick = await timelineSelectedNames(page);
+
+		t.check('passo 7: o F5 continua a partir do clique', afterClick[0] === EXTRA_FILE, 'selecionadas=' + JSON.stringify(afterClick));
+
+		// Passo 8: Ctrl+clique não cria um segundo evento ativo.
+		await page.keyboard.down('Control');
+		await page.locator('.watch-code-timeline .monaco-list-row').nth(0).click();
+		await page.keyboard.up('Control');
+		await delay(400);
+		const ctrlClicked = await timelineSelectedNames(page);
+
+		t.check('passo 8: a seleção continua única', ctrlClicked.length === 1, 'selecionadas=' + JSON.stringify(ctrlClicked));
 	}
 },
 ];

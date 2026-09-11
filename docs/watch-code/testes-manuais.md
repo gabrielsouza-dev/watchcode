@@ -519,4 +519,120 @@ enquanto o teste corria: o passo "nasce recolhida" mediu o clique de quem estava
 olhando. Nada a corrigir no produto; a execução foi repetida sem interferência e
 passou.
 
+---
+
+## T-0006 — Anterior/Próximo na linha do tempo
+
+**Tarefa de origem:** E2-T3 — Anterior/Próximo.
+
+### Objetivo
+
+Comprovar que o desenvolvedor anda pelas alterações que o agente fez **pelo
+teclado**, partindo de uma view recolhida, e que existe **um** evento ativo — a
+posição de onde a E2-T4 vai abrir o arquivo.
+
+Um teste automatizado não cobre isto: tecla, foco de teclado e seleção de lista só
+existem na janela. A suíte de unidade prova a regra do passo
+(~stepActiveId~, 9 testes), mas não prova que a tecla **chega** ao comando, nem
+que o foco permanece onde estava.
+
+### Pré-condições
+
+- App compilado: ~npm run transpile-client~.
+- O teste é executado pelo arnês, que abre o app em perfil isolado e observa a
+  pasta dele:
+
+  ~~~powershell
+  node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0006
+  ~~~
+
+- **A janela do app não pode ser tocada durante a execução**: o teste mede o foco
+  do teclado e a linha selecionada, e o clique de quem estiver olhando entra na
+  medida.
+- Três alterações no workspace: a sonda de aquecimento do arnês
+  (~aquecimento.txt~), ~note.txt~ e ~extra.txt~. Nomes distintos de propósito:
+  deixam claro qual linha está selecionada na evidência.
+
+### Passos
+
+1. Sem nenhuma alteração registrada, olhe o título da view "Timeline", no
+   Explorer: **nenhum** botão de navegação aparece.
+2. Em um terminal de fora da IDE, altere três arquivos da pasta observada, com
+   uma pausa entre eles (o agrupador fecha a sessão em ~1,5 s).
+3. Com a view **recolhida**, aperte **F5**. Confira: a view abre, a primeira
+   alteração (a mais antiga) fica selecionada, e o foco do teclado **não** vai
+   para a lista.
+4. Aperte **F5** outra vez: a seleção anda uma linha. Aperte **Shift+F5**: volta
+   uma linha.
+5. Na primeira alteração, aperte **Shift+F5**: não sai do lugar.
+6. Vá até a última e aperte **F5**: também não sai do lugar.
+7. Clique numa linha do meio e aperte **F5**: a navegação continua da linha
+   clicada.
+8. Segure **Ctrl** e clique em outra linha: só **uma** linha fica selecionada.
+9. Com alterações na lista, os dois botões (seta para cima e seta para baixo)
+   aparecem no título da view.
+
+### Resultado esperado
+
+- Passo 1: nenhum botão de navegação no título.
+- Passo 3: view expandida, primeira linha selecionada, foco inalterado.
+- Passo 4: a seleção anda nas duas direções, uma linha por vez.
+- Passos 5 e 6: nas pontas o passo para, sem dar a volta.
+- Passo 7: o clique define o evento ativo, e o F5 continua dele.
+- Passo 8: a seleção nunca é múltipla.
+- Passo 9: dois botões, um para cada direção.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 11/09/2026:
+
+~~~text
+  ok    passo 1: sem alteração, os botões de navegação não aparecem — ações=[]
+  ok    passo 2: o ledger registrou as três alterações — eventos=3 / linhas na tela=[]
+  ok    passo 3: a view começa recolhida — aria-expanded=false
+  ok    passo 4: o F5 abre a view — aria-expanded=true
+  ok    passo 4: a lista mostra as três alterações, na ordem — linhas=["aquecimento.txt","note.txt","extra.txt"]
+  ok    passo 4: os dois botões de navegação aparecem no título — ações=["Previous Change (Shift+F5)","Next Change (F5)"]
+  ok    passo 4: o primeiro F5 escolhe a alteração mais antiga — selecionadas=["aquecimento.txt"]
+  ok    passo 4: o foco não vai para a lista — foco antes="editor-group-container empty active" depois="editor-group-container empty active"
+  ok    passo 5: o F5 seguinte anda uma linha — selecionadas=["note.txt"]
+  ok    passo 5: o Shift+F5 volta uma linha — selecionadas=["aquecimento.txt"]
+  ok    passo 6: no começo, o anterior não dá a volta — selecionadas=["aquecimento.txt"]
+  ok    passo 6: dois F5 chegam na última alteração — selecionadas=["extra.txt"]
+  ok    passo 6: no fim, o próximo não dá a volta — selecionadas=["extra.txt"]
+  ok    passo 7: o clique escolhe a linha clicada — selecionadas=["note.txt"]
+  ok    passo 7: o F5 continua a partir do clique — selecionadas=["extra.txt"]
+  ok    passo 8: a seleção continua única — selecionadas=["aquecimento.txt"]
+
+veredito: PASSOU (1 testes manuais)
+~~~
+
+Vale notar duas coisas na evidência. O rótulo dos botões sai com a tecla entre
+parênteses — "Next Change (F5)" —, o que é prova de que a ligação existe. E o
+"linhas na tela=" vazio no passo 2 não é falha: com a view recolhida o corpo não é
+desenhado (a pane só renderiza o corpo quando expandida), então a lista existe no
+modelo e não no DOM — que é exatamente o caso que a carga sob demanda resolve.
+
+### Situação
+
+**aprovado.**
+
+### Histórico de execução
+
+A primeira execução **reprovou em 9 das 16 conferências**: com a view recolhida, o
+F5 não fazia absolutamente nada — nem abria a view, nem selecionava linha.
+
+A causa era o ~when~ da tecla. A chave de contexto "há alterações"
+(~watchCodeTimeline.hasEvents~) é escrita pela própria view quando ela lê a lista,
+e a lista só é lida quando o corpo é desenhado **ou** quando um comando navega —
+ovo e galinha. Com a view recolhida, o estado em que ela nasce, a chave ficava
+falsa para sempre e a tecla nunca chegava ao comando: quem respondia ao F5 era o
+~debug.openView~, o dono antigo da tecla.
+
+Correção: a **tecla** ficou incondicional (o peso maior resolve o dono antigo), e
+a chave de contexto continuou comandando apenas os **botões**, que vivem numa view
+já desenhada. A execução seguinte passou nas 16 conferências. O registro da
+divergência está no §7 da especificação da tarefa.
+
+
 
