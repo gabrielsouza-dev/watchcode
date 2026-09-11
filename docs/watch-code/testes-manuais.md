@@ -1110,7 +1110,7 @@ sem relação com a linha do tempo; na execução registrada acima ele não apar
 
 | Campo | Valor |
 | --- | --- |
-| Tarefa de origem | **E1-T7 — Pasta não é alteração** |
+| Tarefa de origem | **E1-T7 — Pasta não é alteração** (cenário original) e **E1-T8 — Remoção de pasta não é alteração** (cinco fases) |
 | Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0011` |
 
 ### Objetivo
@@ -1128,30 +1128,51 @@ defeito apareceu: no T-0010, que passou com 24 conferências, o perfil guardou a
   (Error: ... that is actually a directory)
 ```
 
+A **E1-T8** atacou o caso irmão, que esta mesma medição tinha achado: a **remoção** de
+uma pasta gravava um evento para o caminho dela. Uma remoção não lê o disco — o caminho
+já não existe —, então a decisão "não é arquivo, não registra" não a alcançava. A
+correção passou a exigir **prova** do que o caminho era antes de sumir, e o cenário
+ganhou as fases 3, 4 e 5 para provar cada prova: a memória da própria observação, o git
+e o caso em que não há prova nenhuma. As três fases juntas são o teste: uma sozinha não
+distingue "acertou" de "nunca perguntou".
+
 ### Pré-condições
 
 - Build atualizado: `npm run transpile-client` (o arnês aborta se o `out/` estiver
   mais velho que as pastas de `src/vs` que ele acompanha).
-- Nada mais: a pasta observada e o perfil isolado são criados pelo próprio arnês, em
+- O workspace e o perfil isolado são criados pelo próprio arnês, em
   `%TEMP%/watchcode-manual/t-0011`.
-- Sem repositório git, de propósito: o arquivo novo nasce sem "antes", e o evento dele
-  é parcial como o de qualquer arquivo criado fora de um repositório.
+- O workspace chega com `src/legado/antigo.ts` **commitado**: quando `src/legado` for
+  apagada, é o git que responde o tipo dela, porque a observação nunca chegou a lê-la.
+- E com `src/vazio/` criada vazia e fora do git: uma pasta vazia não existe para o git,
+  então não há prova nenhuma do que ela era — é o resíduo medido na fase 5.
+- O arquivo novo de `src/pacote` nasce sem "antes", fora de repositório: o evento dele é
+  parcial como o de qualquer arquivo criado fora de um repositório.
 
 ### Passos
 
-1. Abra a IDE numa pasta observada vazia, com perfil próprio, e confirme a observação
+1. Abra a IDE no workspace observado, com perfil próprio, e confirme a observação
    pela sonda: escreva `aquecimento.ts` e espere o evento dele no ledger.
-2. Com o app aberto, crie de fora — como faria um agente — a pasta `src/pacote`, e
-   nada dentro dela.
-3. Espere 2 s e confira o ledger: só a sonda, e nenhum evento apontando para a pasta.
-4. Escreva `src/pacote/regra.ts` com 12 linhas de código.
+2. **Fase 1** — com o app aberto, crie de fora, como faria um agente, a pasta
+   `src/pacote`, e nada dentro dela. Espere 2 s.
+3. Confira o ledger: só a sonda, e nenhum evento apontando para a pasta.
+4. **Fase 2** — escreva `src/pacote/regra.ts` com 12 linhas de código.
 5. Espere o ledger sossegar e confira: dois eventos, o segundo é o do arquivo, com
    faixa `1-12`. Confira também a lista da timeline: `aquecimento.ts` e `regra.ts`,
    nenhuma linha da pasta.
-6. Apague a pasta `src/pacote` inteira.
+6. **Fase 3** — apague a pasta `src/pacote` inteira, com o arquivo dentro. Aqui a
+   prova de que o caminho era pasta é a **memória da observação**: ela viu a pasta
+   nascer, no passo 2.
 7. Espere 2 s, espere o ledger sossegar e conte quantos eventos apontam para a pasta
-   e quantos para o arquivo.
-8. Confira o log do perfil: nenhuma linha de erro ou aviso escrita pelo produto.
+   `src/pacote` e quantos para `src/pacote/regra.ts`.
+8. **Fase 4** — apague `src/legado`, que já existia antes de o app abrir e está no
+   git. Aqui a observação nunca leu essa pasta: quem responde o tipo dela é o git,
+   com o caminho ainda no `HEAD`. Espere e conte os eventos da pasta e do arquivo
+   `src/legado/antigo.ts`.
+9. **Fase 5** — apague `src/vazio`, criada vazia e fora do git. Não há memória nem
+   git: nenhuma prova do que ela era. Espere e anote se ela virou evento — é o
+   resíduo.
+10. Confira o log do perfil: nenhuma linha de erro ou aviso escrita pelo produto.
 
 ### Resultado esperado
 
@@ -1159,9 +1180,16 @@ defeito apareceu: no T-0010, que passou com 24 conferências, o perfil guardou a
   arquivo.
 - Passo 5: um evento novo, e **só** ele — o do arquivo —, com a faixa do arquivo
   inteiro; a pasta não vira linha na lista.
-- Passo 7: **medição**, não promessa. A remoção de pasta não foi corrigida nesta
-  tarefa (decisão D2): o que se espera é o número, registrado no relatório.
-- Passo 8: nenhuma linha `[error]` ou `[warning]` com o prefixo `[watchCode]` em
+- Passo 7: **zero** eventos para `src/pacote`. É a conferência que reprova: com a
+  memória da pasta que a observação viu nascer, a remoção dela não pode virar
+  evento. O número do arquivo de dentro é **medição**, não promessa — ver a execução
+  da E1-T8, abaixo.
+- Passo 8: **zero** eventos para `src/legado`. É a segunda prova, e a mais difícil:
+  sem memória nenhuma, a decisão depende do git responder que aquele caminho era
+  uma pasta.
+- Passo 9: **medição**, não promessa. Sem prova, a remoção continua sendo gravada e o
+  esperado é `pasta vazia=1`, registrado no relatório como resíduo.
+- Passo 10: nenhuma linha `[error]` ou `[warning]` com o prefixo `[watchCode]` em
   `main.log` ou `window1/renderer.log`.
 
 ### Resultado obtido
@@ -1200,6 +1228,57 @@ grava um evento para o **caminho da pasta** (`pasta=1`): a remoção não lê o 
 então a decisão desta tarefa — "não é arquivo, não registra" — não a alcança. O evento
 do arquivo removido (`arquivo=1`) é o legítimo. A pendência ficou registrada no
 `overview.md`, junto da linha da E1-T7.
+
+#### Execução da E1-T8 — 11/09/2026
+
+A remoção da pasta passou a ser corrigida nesta tarefa, e o cenário ganhou as fases 3
+a 5. Rodou sozinho, com as onze conferências verdes:
+
+```text
+=== Watch Code — testes manuais no aplicativo ===
+repositorio : D:\Youtube\Dev\vscode
+raiz        : C:\Users\GABRIE~1\AppData\Local\Temp\watchcode-manual
+testes      : T-0011
+
+T-0011 — Pasta nao e alteracao
+      janela montada em 11s
+      ledger: C:\Users\Gabriel S\AppData\Local\Temp\watchcode-manual\t-0011\user-data\User\workspaceStorage\3c64a801fe93ead8b9a1a92a9b999f72\changeLedger
+      observacao de pe: a sonda foi registrada em 2026-09-11T21:43:49.354Z
+  ok    fase 1: a pasta sozinha nao vira evento — eventos da pasta=0
+  ok    fase 1: o ledger nao cresceu com a pasta — eventos=1 sonda=1
+  ok    fase 2: so o arquivo virou evento — eventos=2 ultimo="src/pacote/regra.ts"
+  ok    fase 2: o arquivo novo tem a faixa do arquivo inteiro — faixa="1-12"
+  ok    fase 2: a pasta nao aparece na linha do tempo — linhas=["aquecimento.ts","regra.ts"]
+  ok    fase 3: a pasta removida nao vira evento — eventos da pasta=0
+  ok    medicao (nao reprova): fase 3, o arquivo de dentro vira evento de remocao? — eventos do arquivo=1
+  ok    fase 4: a pasta rastreada pelo git nao vira evento — eventos da pasta=0
+  ok    medicao (nao reprova): fase 4, o arquivo de dentro vira evento de remocao? — eventos do arquivo=0
+  ok    medicao (nao reprova): a pasta vazia que ja existia vira evento? — pasta vazia=1
+  ok    log: o produto nao escreveu erro nem aviso — linhas=64 problemas=[]
+
+veredito: PASSOU (1 testes manuais)
+```
+
+Logo depois, a execução do arnês inteiro fechou com `veredito: PASSOU (11 testes
+manuais)` — os onze cenários na mesma execução, com a varredura do log passando em
+todos.
+
+A pasta removida deixou de virar evento nas duas fases que têm prova: a que a
+observação viu nascer (`src/pacote`, fase 3, `eventos da pasta=0`) e a que o git
+conhece (`src/legado`, fase 4, `eventos da pasta=0`). O que dá sentido às duas é a
+fase 5: sem memória e sem git, a pasta vazia continua virando evento
+(`pasta vazia=1`). Sem essa terceira fase, "não virou evento" poderia significar
+apenas que a pergunta nunca foi feita.
+
+O número do arquivo de dentro precisa ser lido com cuidado. Na fase 3 ele é `1`, e
+esse `1` é o **evento da fase 2** — quando o arquivo nasceu —; a remoção não
+acrescentou nenhum. Na fase 4 é `0`: o arquivo existia antes de o app abrir, nunca
+teve evento, e a remoção também não criou nenhum. Ou seja: nos dois casos, o arquivo
+que estava dentro da pasta apagada **não** deixa evento de remoção. O motivo está no
+core do VS Code, não nesta tarefa: o `coalesceEvents` do watcher descarta de
+propósito os `DELETED` dos filhos quando a pasta que os continha foi apagada
+(`src/vs/platform/files/common/watcher.ts:438`), então o evento nunca chega ao
+produto. A execução da E1-T7 já mostrava o mesmo. O achado virou a **E1-T9**.
 
 ### Situação
 

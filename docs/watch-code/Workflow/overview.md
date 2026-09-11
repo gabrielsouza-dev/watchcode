@@ -260,7 +260,8 @@ O critério é o tipo de acoplamento de cada módulo inútil ao produto:
 | E1-T5 | Controle de observação | Comando e indicador de estado para **ativar/desativar** a observação pela interface; desligado, nenhuma sessão é aberta; estado refletido no status | E1-T4 | feito (92 testes no módulo; manual T-0004 aprovado em 10/09/2026 e depois coberto pelo arnês, saindo do registro) |
 | E1-T6 | Fechamento da E1 | Um script (sem agente nenhum) altera arquivos e cada alteração aparece no ledger com antes/depois corretos, com a observação ligada | E1-T5 | feito (93 testes no módulo; arnês ponta a ponta em `docs/watch-code/e2e`; 2 defeitos corrigidos) |
 | E1-T7 | Pasta não é alteração | `recordChange` devolve `Promise<ChangeEvent \| undefined>`: a pasta que chega ao watcher deixa de virar erro no log | E1-T6 | feito (3 testes novos no módulo (`changeLedger`, 125 → 128); manual T-0011 aprovado com 7 conferências — a pasta sozinha não mexe no ledger, o arquivo dentro dela vira o único evento novo e o log do perfil sai limpo. O arnês ganhou uma varredura transversal: fechado o app, o log do perfil é conferido e qualquer erro ou aviso do `[watchCode]` reprova a execução — era exatamente o que o T-0010 deixava passar) |
-| E1-T8 | Remoção de pasta não é alteração | A pasta apagada deixa de virar evento: hoje a remoção de um diretório grava um evento para o **caminho da pasta**, sem antes e sem depois | E1-T7 | pendente (medido no T-0011 — `pasta=1`; registrada depois do fechamento da etapa, como a E1-T7) |
+| E1-T8 | Remoção de pasta não é alteração | A pasta apagada deixa de virar evento: hoje a remoção de um diretório grava um evento para o **caminho da pasta**, sem antes e sem depois | E1-T7 | feito (7 testes novos no módulo (`changeLedger`, 128 → 135) e 2 no módulo `git` (12 → 14); manual T-0011 aprovado com 11 conferências, em cinco fases. O gravador passou a exigir **prova** de que o caminho removido era pasta: a memória da própria observação — a pasta que ela viu nascer e os pais de todo arquivo lido — e, quando essa memória é silenciosa, o git respondendo `tree`. Sem prova nenhuma, a remoção continua sendo gravada. O `show` do serviço local de git virou `cat-file blob`: `show HEAD:<pasta>` devolvia a listagem da árvore com código 0, indistinguível de conteúdo de arquivo) |
+| E1-T9 | A pasta removida leva junto os arquivos que a observação conhece sob ela | Depois da E1-T8, apagar uma pasta com arquivos dentro não deixa rastro nenhum na linha do tempo: o watcher do core colapsa os `DELETED` dos filhos quando a pasta que os continha é apagada | E1-T8 | pendente (achado do T-0011 na execução da E1-T8 — `eventos do arquivo=1`, e esse 1 é o evento da criação, não o da remoção. A observação já sabe quais arquivos leu sob aquela pasta, e é o próprio ledger que tem a lista) |
 
 **E1 pronta quando:** com a observação ligada, qualquer alteração feita fora da IDE — por agente, script ou terminal — vira um evento com arquivo, origem, horário e snapshots antes/depois corretos.
 
@@ -271,12 +272,27 @@ sem depois, o agrupamento em três sessões e o caminho ignorado que não vira e
 A execução encontrou dois defeitos que a suíte inteira não pegava: o git nunca era
 consultado e o "antes" não entrava no store de snapshots. Ambos corrigidos.
 
-**Aberto na E1:** o terceiro defeito da E1-T6 — a pasta que chegava ao watcher e virava
-erro no log — foi corrigido na **E1-T7**, executada como ciclo próprio, em High, por
-mudar contrato. Restou um caso irmão, **medido** no T-0011 e não corrigido: a
-**remoção** de uma pasta grava um evento para o caminho da pasta. Uma remoção não lê o
-disco, então a decisão "não é arquivo, não registra" não a alcança — e não há como
-perguntar o tipo a um caminho que já não existe. É a **E1-T8**.
+**Aberto na E1:** os dois defeitos irmãos da E1-T6 fecharam. A pasta que chegava ao
+watcher e virava erro no log foi corrigida na **E1-T7**; a **remoção** de pasta, que
+gravava um evento para o caminho dela, na **E1-T8** — as duas executadas como ciclo
+próprio, em High, por mudarem contrato. A E1-T8 tinha um problema a mais que a E1-T7
+não tinha: uma remoção não lê o disco, então não há como perguntar o tipo a um caminho
+que já não existe. A saída foi exigir **prova** antes de recusar a remoção: a memória
+da própria observação, que sabe da pasta que viu nascer e dos pais de todo arquivo que
+leu, e, quando essa memória é silenciosa, o git — que ainda tem o caminho no `HEAD`.
+Sem prova nenhuma, a remoção continua sendo gravada, como sempre foi.
+
+**O que a E1-T8 deixou medido:** o resíduo que ninguém consegue provar — a pasta vazia
+e fora do git que já existia antes de o app abrir continua virando evento
+(`pasta vazia=1`). Não há memória nem git para dizer o que ela era, e corrigir isso
+dependeria de varrer o workspace inteiro ao ligar a observação, decisão recusada na
+**E1-T5**. O resíduo está medido no T-0011, fase 5, e o teste não reprova por ele:
+não há promessa a ser quebrada. E o achado maior, que virou tarefa: apagar uma pasta
+**com arquivos dentro** não deixa rastro nenhum dos arquivos. Antes da E1-T8 sobrava a
+linha fantasma da pasta; agora não sobra nada. O motivo é do core do VS Code — o
+`coalesceEvents` do watcher descarta os `DELETED` dos filhos quando a pasta que os
+continha é apagada (`src/vs/platform/files/common/watcher.ts:438`), e o evento nunca
+chega ao produto. É a **E1-T9**.
 
 ### Etapa E2 — Timeline e navegação
 
