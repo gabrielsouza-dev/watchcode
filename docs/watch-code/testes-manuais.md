@@ -635,4 +635,143 @@ já desenhada. A execução seguinte passou nas 16 conferências. O registro da
 divergência está no §7 da especificação da tarefa.
 
 
+## T-0007 — Leitura de código pelo F12
+
+**Tarefa de origem:** E8-T1 — Inteligência de código para leitura.
+
+### Objetivo
+
+Comprovar que a IDE **lê** código: o F12 leva à definição, o hover mostra a
+assinatura — e isso acontece **com** as superfícies de escrita desligadas, sem erro
+sublinhado, sem sugestão ao digitar e sem comando de escrita na Paleta de Comandos.
+
+Não é testável por unidade: quem responde ao F12 é um servidor de linguagem que só
+existe dentro da janela, conversa por IPC com a extensão e depende dos padrões do
+produto. Só a janela real prova a combinação.
+
+### Pré-condições
+
+- Extensão `extensions/typescript-language-features` restaurada, com as dependências
+  instaladas (25 pacotes) e o `out/` compilado por
+  `npm run gulp -- compile-extension:typescript-language-features`.
+- Padrões do produto em vigor (`PRODUCT_SETTING_DEFAULTS`), em perfil de usuário
+  **novo**, sem sobrescrita do usuário.
+- Workspace com dois arquivos: `biblioteca.ts` (define `saudacao` na linha 2, nome na
+  coluna 17) e `consumidor.ts` (importa e usa o símbolo na linha 3, coluna 25).
+- O consumidor tem **um erro de tipo proposital** (`const quebrado: number = 'texto';`):
+  sem ele, "nenhum erro sublinhado" não provaria nada, porque não haveria erro para
+  aparecer.
+- O arnês abre o app em perfil isolado e comanda a interface pelo Playwright.
+- Comando:
+
+  ```powershell
+  node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0007
+  ```
+
+- **A janela do app não pode ser tocada durante a execução**: o teste digita no
+  editor e mede o foco do teclado.
+
+### Passos
+
+1. Abra `consumidor.ts` no editor.
+2. Confira que a extensão do TypeScript está ativa — ela se anuncia na barra de
+   status com a versão do servidor.
+3. Posicione o cursor sobre `saudacao` na linha 3 (Ctrl+G, `3:25`). A barra de status
+   deve mostrar `Ln 3, Col 25`.
+4. Aperte **F12**. O editor ativo deve passar a ser `biblioteca.ts`.
+5. Confira a posição: o cursor fica na linha da definição (`Ln 2`).
+6. Com o cursor ali, aperte **Ctrl+K Ctrl+I** (mostrar hover): o hover traz
+   `function saudacao(): string`.
+7. Volte ao `consumidor.ts` e confira que **nenhum** erro é sublinhado e que a barra
+   de status **não** acusa problema — apesar do erro de tipo plantado no arquivo.
+8. Abra a paleta (Ctrl+Shift+P) e procure `sort imports`: **nada** deve aparecer.
+9. Digite `sauda` numa linha nova: o widget de sugestão **não** pode abrir.
+
+### Resultado esperado
+
+- Passo 2: a extensão ativa, com a versão do servidor visível.
+- Passos 4 e 5: o F12 abre o outro arquivo e para em cima do símbolo definido.
+- Passo 6: o hover traz a assinatura da função.
+- Passo 7: zero marcas de erro e zero problemas na barra.
+- Passo 8: nenhuma linha de `Sort Imports` na paleta.
+- Passo 9: nenhuma sugestão.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 11/09/2026:
+
+```text
+  ok    passo 1: o consumidor abre no editor — aba ativa="consumidor.ts"
+  ok    passo 2: a extensão do TypeScript está ativa — indicador="editor language status: loading intellisense status, next: 6.0.3, typescript version"
+  ok    passo 3: o cursor está sobre o símbolo usado — posição="Ln 3, Col 25"
+  ok    passo 4: o F12 abre o arquivo da definição — aba ativa="biblioteca.ts"
+  ok    passo 5: o cursor fica na linha da definição — posição="Ln 2, Col 17", esperado Ln 2, Col 17
+  ok    passo 6: o hover traz a assinatura — hover="function saudacao(): string"
+  ok    passo 7: o editor não sublinha o erro de tipo — marcas=0
+  ok    passo 7: a barra de status não acusa problema — problemas="No Problems"
+  ok    passo 8: Sort Imports não aparece na paleta — linhas=["Organize Imports Shift + Alt + O similar commands"]
+  ok    passo 9: digitar não abre sugestão — sugestões=[]
+
+veredito: PASSOU (1 testes manuais)
+```
+
+A linha do passo 8 merece leitura: o que a paleta devolveu para a busca "sort
+imports" foi o **"Organize Imports"** do editor (com o atalho ao lado). Ele continua
+lá — é comando do editor, não da extensão, e ficou fora do escopo aprovado. Fica
+registrado como pendência conhecida.
+
+### Situação
+
+**aprovado.**
+
+### Histórico de execução
+
+Foram três execuções até passar, e as duas reprovações valem mais que o resultado
+final.
+
+**Primeira execução — 5 de 12 conferências reprovadas.** O F12 não fazia nada e o
+hover mostrava `(loading...) import saudacao`. Com o log do tsserver ligado, a causa
+apareceu:
+
+```text
+servidor sintático (ServerMode: 1): definitionAndBoundSpan x30   <- os 30 F12
+servidor semântico:                  definitionAndBoundSpan x0
+```
+
+O TypeScript sobe dois servidores. Enquanto o cliente acredita que o projeto está
+carregando, ele manda definição e hover para o **sintático** — que não tem projeto e
+não responde. E quem tira o cliente desse estado é um evento de **diagnóstico**
+(`server.ts`: `projectLoadingFinish`, `semanticDiag`, `syntaxDiag`…). Com
+`typescript.validate.enable: false` o diagnóstico nunca acontece, o estado nunca sai
+de "carregando" e o F12 fica preso no servidor errado. Desligar a validação quebrava
+a leitura.
+
+Correção: `typescript.tsserver.useSyntaxServer: "never"` nos padrões do produto —
+um servidor só, sem roteamento (`CompositeServerType.Single`). Com ela, o log virou
+`definitionAndBoundSpan x1` e `quickinfo x1`, e o F12 passou a acertar a linha e a
+coluna exatas.
+
+**Segunda execução — passos 8 e 9 reprovados.** O `Sort Imports` continuava na
+paleta porque a extensão **declara** essas entradas no próprio manifesto: o item
+registrado pelo produto com `when` falso suprime apenas o item *implícito*, e
+`IMenuRegistry` não tem API de remoção. Correção: as cinco entradas de escrita saíram
+do `package.json` da extensão, **junto** com a supressão — as duas metades juntas é
+que tiram o comando da paleta. A sugestão restante vinha do
+`editor.wordBasedSuggestions` (o log não tinha nenhum `completionInfo`): passou a
+`off` nos padrões.
+
+**Terceira execução** reprovou só o passo 6, por corrida no encadeamento
+Ctrl+K Ctrl+I — o hover não abria. O atalho ganhou uma pausa entre as duas teclas e
+nova tentativa; a conferência não mudou. A execução seguinte passou nas 10.
+
+### Pendência registrada
+
+`Organize Imports` (Shift+Alt+O) continua na Paleta de Comandos e reescreve o
+arquivo. Ele é comando do **editor** e chega à paleta pelas ações suportadas pelo
+editor ativo, não pelo registro de menus — nenhum ajuste de lista o alcança. Ficou
+fora do escopo aprovado, que recusou explicitamente esconder rename e refatorar, e
+fica como candidato para a E8-T2, que trata de comandos e atalhos que não são do
+produto.
+
+
 

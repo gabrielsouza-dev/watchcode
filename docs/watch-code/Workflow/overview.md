@@ -330,7 +330,7 @@ dentro da etapa é a desta tabela.
 
 | ID | Tarefa | Entregável | Depende | Status |
 | --- | --- | --- | --- | --- |
-| E8-T1 | Inteligência de código para leitura | `typescript-language-features` de volta, com `typescript.validate.enable: false`, sem completion e sem formatação: ficam **F12** (definição), referências, símbolos e hover. Sem acusar erro — o visualizador não opina | — | pendente |
+| E8-T1 | Inteligência de código para leitura | `typescript-language-features` de volta, com `typescript.validate.enable: false`, sem completion e sem formatação: ficam **F12** (definição), referências, símbolos e hover. Sem acusar erro — o visualizador não opina | — | feito (31 testes no módulo, 4 novos; manual T-0007 aprovado com 10 conferências. Uma armadilha apareceu no caminho: com a validação desligada o cliente nunca sai do estado "carregando projeto" e o F12 ia para o servidor sintático — resolvido com `typescript.tsserver.useSyntaxServer: 'never'`. Os comandos de escrita saíram da paleta pelas duas metades: lista de supressão no produto e remoção das cinco entradas no `package.json` da extensão) |
 | E8-T2 | Atalhos que não são do produto | Descartar as ligações de F2 (renomear), F5/Shift+F5/Ctrl+F5, F9/Shift+F9, F10, Shift+F11, Alt+F9, Alt+F8 e Ctrl+F9: escrever e executar saem da fileira; ler, navegar, comparar e propor ficam | E8-T1 | pendente |
 | E8-T3 | Comandos de apoio da timeline | `newest`/`oldest`, `focus` e `filterByActiveFile` na Paleta e no menu de contexto | E2-T5 | pendente |
 
