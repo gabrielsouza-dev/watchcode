@@ -103,6 +103,10 @@ class GatedLedger implements IChangeLedgerService {
 		return this.inner.readById(eventId);
 	}
 
+	readCurrentUnder(folderUri: string): Promise<readonly ChangeEvent[]> {
+		return this.inner.readCurrentUnder(folderUri);
+	}
+
 	recordSnapshot(content: VSBuffer): Promise<string> {
 		return this.inner.recordSnapshot(content);
 	}

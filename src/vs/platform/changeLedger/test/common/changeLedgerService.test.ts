@@ -160,6 +160,38 @@ suite('changeLedgerService', () => {
 		assert.deepStrictEqual((await ledger.readAll()).map(event => event.id), ['E-0001', 'E-0002', 'E-0003']);
 	});
 
+	test('reads the files under a path', async () => {
+		const ledger = createLedger();
+
+		await ledger.record(changeEvent({ id: 'E-0001', fileUri: 'src/pacote/regra.ts', timestamp: 1 }));
+		await ledger.record(changeEvent({ id: 'E-0002', fileUri: 'src/pacote/sub/antigo.ts', timestamp: 2 }));
+		await ledger.record(changeEvent({ id: 'E-0003', fileUri: 'src/pacote2/vizinho.ts', timestamp: 3 }));
+		await ledger.record(changeEvent({ id: 'E-0004', fileUri: 'src/outra/fora.ts', timestamp: 4 }));
+		// O próprio caminho não é filho de si mesmo: quem pergunta quer quem estava dentro.
+		await ledger.record(changeEvent({ id: 'E-0005', fileUri: 'src/pacote', timestamp: 5 }));
+
+		assert.deepStrictEqual(
+			[
+				(await ledger.readCurrentUnder('src/pacote')).map(event => event.id),
+				// O caminho do evento chega com '/', mas o separador do sistema não pode mudar a resposta.
+				(await ledger.readCurrentUnder('src\\pacote')).map(event => event.id),
+			],
+			[
+				['E-0001', 'E-0002'],
+				['E-0001', 'E-0002'],
+			]
+		);
+	});
+
+	test('reads the current event of each file under a path', async () => {
+		const ledger = createLedger();
+
+		await ledger.record(changeEvent({ id: 'E-0001', fileUri: 'src/pacote/regra.ts', timestamp: 1 }));
+		await ledger.record(changeEvent({ id: 'E-0002', fileUri: 'src/pacote/regra.ts', timestamp: 2 }));
+
+		assert.deepStrictEqual((await ledger.readCurrentUnder('src/pacote')).map(event => event.id), ['E-0002']);
+	});
+
 	test('returns undefined for an unknown event', async () => {
 		const ledger = createLedger();
 

@@ -360,6 +360,19 @@ async function waitForTimelineRow(page: Page, file: string, timeoutMs = EVENT_TI
 	return -1;
 }
 
+/** Espera a lista mostrar uma quantidade de linhas de um arquivo, e devolve os nomes. */
+async function waitForTimelineRows(page: Page, file: string, total: number, timeoutMs = EVENT_TIMEOUT_MS): Promise<readonly string[]> {
+	const deadline = Date.now() + timeoutMs;
+	let names = await timelineRowNames(page);
+
+	while (names.filter(name => name === file).length < total && Date.now() < deadline) {
+		await delay(500);
+		names = await timelineRowNames(page);
+	}
+
+	return names;
+}
+
 /**
  * Rotulos das acoes de navegacao mostradas no titulo da view.
  *
@@ -1979,26 +1992,32 @@ const TESTS: readonly IManualTest[] = [
 		t.check('fase 2: a pasta nao aparece na linha do tempo', linhas.every(name => name !== nomeDaPasta), 'linhas=' + JSON.stringify(linhas));
 
 		// Fase 3: a pasta removida. A observacao viu a pasta nascer, entao sabe que ela e
-		// pasta; a remocao nao pode ler o disco, e e essa prova que decide.
+		// pasta; a remocao nao pode ler o disco, e e essa prova que decide. O arquivo de
+		// dentro some junto com ela, e quem sabe disso e o ledger: o watcher do core
+		// colapsa os DELETED dos filhos quando a pasta que os continha e apagada
+		// (coalesceEvents, files/common/watcher.ts:438), e o evento deles nunca chega ao
+		// produto. Fechar os arquivos que a pasta levou e o que a E1-T9 acrescenta.
+		const antesDaRemocao = Date.now();
 		rmSync(targetOf(workspace, FOLDER_ONLY), { recursive: true });
 		await delay(FOLDER_WAIT_MS);
 		await waitUntilQuiet(session.ledger);
 
 		const depoisDaRemocao = session.ledger.events();
 		const pastaRemovida = depoisDaRemocao.filter(event => event.fileUri === FOLDER_ONLY).length;
+		const eventosDoArquivo = session.ledger.eventsOf(FOLDER_FILE);
+		const remocaoDoArquivo = eventosDoArquivo[eventosDoArquivo.length - 1];
+		const linhasDaRemocao = await waitForTimelineRows(page, FOLDER_FILE_NAME, 2);
 
 		t.check('fase 3: a pasta removida nao vira evento', pastaRemovida === 0, 'eventos da pasta=' + pastaRemovida);
-
-		// O arquivo de dentro nao ganha evento de remocao: o watcher do core colapsa os
-		// DELETED dos filhos quando a pasta que os continha some (coalesceEvents,
-		// files/common/watcher.ts:438). O evento nunca chega ao produto, entao a medicao
-		// registra o numero em vez de prometer o que a plataforma nao entrega — a
-		// pendencia esta registrada na E1-T9.
-		t.check('medicao (nao reprova): fase 3, o arquivo de dentro vira evento de remocao?', true, 'eventos do arquivo=' + session.ledger.eventsOf(FOLDER_FILE).length);
+		t.check('fase 3: o arquivo de dentro vira evento de remocao', eventosDoArquivo.length === 2 && remocaoDoArquivo?.afterHash === undefined, 'eventos do arquivo=' + eventosDoArquivo.length + ' depois=' + (remocaoDoArquivo?.afterHash ?? 'ausente'));
+		t.check('fase 3: a remocao do arquivo acontece com a da pasta', (remocaoDoArquivo?.timestamp ?? 0) >= antesDaRemocao, 'instante=' + (remocaoDoArquivo?.timestamp ?? 'ausente') + ' depois de=' + antesDaRemocao);
+		t.check('fase 3: a linha do tempo ganha a linha da remocao', linhasDaRemocao.filter(name => name === FOLDER_FILE_NAME).length === 2, 'linhas=' + JSON.stringify(linhasDaRemocao));
 
 		// Fase 4: a pasta que ja existia. A observacao nunca a leu — quem responde o tipo
-		// dela e o git, que ainda tem o caminho no HEAD. A pasta vazia da fase 5 e o
-		// contraste: sem prova nenhuma, a remocao vira evento.
+		// dela e o git, que ainda tem o caminho no HEAD. O arquivo de dentro tambem nunca
+		// foi lido: ele veio do git, e o ledger nao tem o que fechar. E a medicao do que
+		// ficou fora desta tarefa — enumerar a arvore do HEAD nao entrou nela. A pasta
+		// vazia da fase 5 e o contraste: sem prova nenhuma, a remocao vira evento.
 		rmSync(targetOf(workspace, FOLDER_TRACKED), { recursive: true });
 		await delay(FOLDER_WAIT_MS);
 		await waitUntilQuiet(session.ledger);
@@ -2006,7 +2025,7 @@ const TESTS: readonly IManualTest[] = [
 		const pastaDoGit = session.ledger.events().filter(event => event.fileUri === FOLDER_TRACKED).length;
 
 		t.check('fase 4: a pasta rastreada pelo git nao vira evento', pastaDoGit === 0, 'eventos da pasta=' + pastaDoGit);
-		t.check('medicao (nao reprova): fase 4, o arquivo de dentro vira evento de remocao?', true, 'eventos do arquivo=' + session.ledger.eventsOf(FOLDER_TRACKED_FILE).length);
+		t.check('medicao (nao reprova): fase 4, o arquivo rastreado que a observacao nunca leu', true, 'eventos do arquivo=' + session.ledger.eventsOf(FOLDER_TRACKED_FILE).length);
 
 		// Fase 5: a medicao do residuo. Pasta vazia nao esta no git e a observacao nunca a
 		// leu: nao ha prova nenhuma de que ela e pasta. A conferencia nunca reprova — nao ha

@@ -60,7 +60,7 @@ suite('changeRecorderService', () => {
 		return new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService, readFromHead, readPathKind);
 	}
 
-	function observedChange(overrides: Partial<{ fileUri: string; attribution: 'hook' | 'observed'; kind: ObservedChangeKind; folderUri: URI }> = {}) {
+	function observedChange(overrides: Partial<{ fileUri: string; attribution: 'hook' | 'observed'; kind: ObservedChangeKind; folderUri: URI; timestamp: number }> = {}) {
 		return {
 			fileUri: FILE_URI,
 			sessionId: 'S-0001',
@@ -249,9 +249,21 @@ suite('changeRecorderService', () => {
 		await recordedEvent(recorder.recordChange(observedChange({ fileUri: arquivo })));
 
 		await fileService.del(resource(pasta), { recursive: true });
-		const remocao = await recorder.recordChange(observedChange({ fileUri: pasta, kind: 'deleted' }));
+		const remocao = await recorder.recordChange(observedChange({ fileUri: pasta, kind: 'deleted', timestamp: TIMESTAMP + 1 }));
+		const eventos = await ledger.readByFile(arquivo);
 
-		assert.deepStrictEqual({ remocao, consultados }, { remocao: undefined, consultados: [] });
+		assert.deepStrictEqual({
+			remocao,
+			consultados,
+			eventos: eventos.length,
+			afterHash: eventos[eventos.length - 1]?.afterHash,
+		}, {
+			remocao: undefined,
+			consultados: [],
+			// A pasta não vira evento, e o arquivo que ela levou ganha o da remoção.
+			eventos: 2,
+			afterHash: undefined,
+		});
 	});
 
 	test('o git reconhece a pasta que já existia', async () => {
@@ -327,6 +339,177 @@ suite('changeRecorderService', () => {
 		}, {
 			arquivo: await computeContentHash(VSBuffer.fromString('agora e arquivo')),
 			eventos: 1,
+		});
+	});
+
+	test('a pasta removida fecha o arquivo que ela levou', async () => {
+		const recorder = createRecorder();
+		const pasta = 'pasta';
+		const arquivo = 'pasta/regra.ts';
+		const conteudo = VSBuffer.fromString('dentro da pasta');
+
+		// A pasta nasce, o arquivo nasce dentro dela e a observação lê os dois.
+		await fileService.createFolder(resource(pasta));
+		await recorder.recordChange(observedChange({ fileUri: pasta }));
+		await fileService.writeFile(resource(arquivo), conteudo);
+		await recordedEvent(recorder.recordChange(observedChange({ fileUri: arquivo })));
+
+		// A pasta some com o arquivo dentro: o watcher do core só avisa da pasta, e a
+		// remoção chega depois da criação do arquivo.
+		await fileService.del(resource(pasta), { recursive: true });
+		const remocaoDaPasta = await recorder.recordChange(observedChange({ fileUri: pasta, kind: 'deleted', timestamp: TIMESTAMP + 1 }));
+
+		const eventos = await ledger.readByFile(arquivo);
+		const remocao = eventos[eventos.length - 1];
+
+		assert.deepStrictEqual({
+			remocaoDaPasta,
+			eventos: eventos.length,
+			afterHash: remocao.afterHash,
+			beforeHash: remocao.beforeHash,
+			sessionId: remocao.sessionId,
+			timestamp: remocao.timestamp,
+			daPasta: (await ledger.readByFile(pasta)).length,
+		}, {
+			remocaoDaPasta: undefined,
+			eventos: 2,
+			afterHash: undefined,
+			beforeHash: await computeContentHash(conteudo),
+			sessionId: 'S-0001',
+			timestamp: TIMESTAMP + 1,
+			daPasta: 0,
+		});
+	});
+
+	test('a pasta removida fecha o arquivo que a sessão anterior conheceu', async () => {
+		const arquivo = 'pasta/regra.ts';
+
+		// A primeira observação lê o arquivo; a segunda nasce sem memória nenhuma, e
+		// o git não sabe do caminho. Quem responde é o ledger.
+		await fileService.writeFile(resource(arquivo), VSBuffer.fromString('veio de antes'));
+		await recordedEvent(createRecorder().recordChange(observedChange({ fileUri: arquivo })));
+
+		const recorder = createRecorder(undefined, async () => 'unknown');
+
+		await fileService.del(resource('pasta'), { recursive: true });
+		const remocaoDaPasta = await recorder.recordChange(observedChange({ fileUri: 'pasta', kind: 'deleted', timestamp: TIMESTAMP + 1 }));
+
+		const eventos = await ledger.readByFile(arquivo);
+
+		assert.deepStrictEqual({
+			remocaoDaPasta,
+			eventos: eventos.length,
+			afterHash: eventos[eventos.length - 1]?.afterHash,
+			daPasta: (await ledger.readByFile('pasta')).length,
+		}, {
+			remocaoDaPasta: undefined,
+			eventos: 2,
+			afterHash: undefined,
+			daPasta: 0,
+		});
+	});
+
+	test('o arquivo que já tinha sido removido não é fechado de novo', async () => {
+		const recorder = createRecorder();
+		const arquivo = 'pasta/regra.ts';
+
+		await fileService.writeFile(resource(arquivo), VSBuffer.fromString('dentro'));
+		await recordedEvent(recorder.recordChange(observedChange({ fileUri: arquivo })));
+
+		// A remoção do próprio arquivo chega antes da remoção da pasta: o arquivo já
+		// saiu, e fechá-lo outra vez seria um evento a mais para a mesma coisa.
+		await fileService.del(resource(arquivo));
+		await recorder.recordChange(observedChange({ fileUri: arquivo, kind: 'deleted' }));
+
+		await fileService.del(resource('pasta'), { recursive: true });
+		await recorder.recordChange(observedChange({ fileUri: 'pasta', kind: 'deleted' }));
+
+		assert.strictEqual((await ledger.readByFile(arquivo)).length, 2);
+	});
+
+	test('o vizinho com o mesmo prefixo não é tocado', async () => {
+		const recorder = createRecorder();
+		const vizinho = 'pasta2/regra.ts';
+
+		await fileService.writeFile(resource('pasta/regra.ts'), VSBuffer.fromString('dentro'));
+		await recordedEvent(recorder.recordChange(observedChange({ fileUri: 'pasta/regra.ts' })));
+		await fileService.writeFile(resource(vizinho), VSBuffer.fromString('vizinho'));
+		await recordedEvent(recorder.recordChange(observedChange({ fileUri: vizinho })));
+
+		await fileService.del(resource('pasta'), { recursive: true });
+		await recorder.recordChange(observedChange({ fileUri: 'pasta', kind: 'deleted' }));
+
+		assert.deepStrictEqual({
+			doVizinho: (await ledger.readByFile(vizinho)).map(event => event.afterHash !== undefined),
+			daPasta: (await ledger.readByFile('pasta')).length,
+		}, {
+			doVizinho: [true],
+			daPasta: 0,
+		});
+	});
+
+	test('o arquivo que a observação nunca viu sob a pasta não vira evento', async () => {
+		const remocao = await createRecorder(undefined, async () => 'directory')
+			.recordChange(observedChange({ fileUri: 'pasta-antiga', kind: 'deleted' }));
+
+		assert.deepStrictEqual({
+			remocao,
+			eventos: (await ledger.readAll()).length,
+		}, {
+			remocao: undefined,
+			eventos: 0,
+		});
+	});
+
+	test('o arquivo sob a subpasta também é fechado', async () => {
+		const recorder = createRecorder();
+		const aninhado = 'pasta/sub/antigo.ts';
+
+		await fileService.writeFile(resource(aninhado), VSBuffer.fromString('no fundo'));
+		await recordedEvent(recorder.recordChange(observedChange({ fileUri: aninhado })));
+
+		await fileService.del(resource('pasta'), { recursive: true });
+		await recorder.recordChange(observedChange({ fileUri: 'pasta', kind: 'deleted', timestamp: TIMESTAMP + 1 }));
+
+		const eventos = await ledger.readByFile(aninhado);
+
+		assert.deepStrictEqual({
+			eventos: eventos.length,
+			afterHash: eventos[eventos.length - 1]?.afterHash,
+			daPasta: (await ledger.readByFile('pasta')).length,
+		}, {
+			eventos: 2,
+			afterHash: undefined,
+			daPasta: 0,
+		});
+	});
+
+	test('a prova direta vence o filho antigo do ledger', async () => {
+		const recorder = createRecorder(undefined, async () => 'unknown');
+		const caminho = 'alvo';
+		const filho = 'alvo/antigo.ts';
+
+		// O caminho já foi pasta, e o ledger ainda guarda o filho que existia lá.
+		await fileService.writeFile(resource(filho), VSBuffer.fromString('de dentro'));
+		await recordedEvent(recorder.recordChange(observedChange({ fileUri: filho })));
+
+		// Agora o caminho é um arquivo, lido nesta observação: é a prova direta, e ela
+		// não pode ser engolida pelo registro antigo do filho.
+		await fileService.del(resource(caminho), { recursive: true });
+		await fileService.writeFile(resource(caminho), VSBuffer.fromString('agora e arquivo'));
+		await recordedEvent(recorder.recordChange(observedChange({ fileUri: caminho })));
+
+		await fileService.del(resource(caminho));
+		const remocao = await recordedEvent(recorder.recordChange(observedChange({ fileUri: caminho, kind: 'deleted' })));
+
+		assert.deepStrictEqual({
+			fileUri: remocao.fileUri,
+			afterHash: remocao.afterHash,
+			doFilho: (await ledger.readByFile(filho)).length,
+		}, {
+			fileUri: caminho,
+			afterHash: undefined,
+			doFilho: 1,
 		});
 	});
 
