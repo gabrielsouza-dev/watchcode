@@ -224,7 +224,7 @@ Só há **um** lado de código no par antes/depois: o trecho atual. O "depois" �
 
 Slug sugerido para a SPEC: o próprio id em minúsculas (ex.: `e1-t2-ledger-snapshots`).
 
-**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **125 casos no `changeLedger` e 40 no `watchCode`**.
+**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **144 casos no `changeLedger` e 40 no `watchCode`**.
 
 ### Etapa E0 — Enxugamento do fork
 
@@ -261,7 +261,7 @@ O critério é o tipo de acoplamento de cada módulo inútil ao produto:
 | E1-T6 | Fechamento da E1 | Um script (sem agente nenhum) altera arquivos e cada alteração aparece no ledger com antes/depois corretos, com a observação ligada | E1-T5 | feito (93 testes no módulo; arnês ponta a ponta em `docs/watch-code/e2e`; 2 defeitos corrigidos) |
 | E1-T7 | Pasta não é alteração | `recordChange` devolve `Promise<ChangeEvent \| undefined>`: a pasta que chega ao watcher deixa de virar erro no log | E1-T6 | feito (3 testes novos no módulo (`changeLedger`, 125 → 128); manual T-0011 aprovado com 7 conferências — a pasta sozinha não mexe no ledger, o arquivo dentro dela vira o único evento novo e o log do perfil sai limpo. O arnês ganhou uma varredura transversal: fechado o app, o log do perfil é conferido e qualquer erro ou aviso do `[watchCode]` reprova a execução — era exatamente o que o T-0010 deixava passar) |
 | E1-T8 | Remoção de pasta não é alteração | A pasta apagada deixa de virar evento: hoje a remoção de um diretório grava um evento para o **caminho da pasta**, sem antes e sem depois | E1-T7 | feito (7 testes novos no módulo (`changeLedger`, 128 → 135) e 2 no módulo `git` (12 → 14); manual T-0011 aprovado com 11 conferências, em cinco fases. O gravador passou a exigir **prova** de que o caminho removido era pasta: a memória da própria observação — a pasta que ela viu nascer e os pais de todo arquivo lido — e, quando essa memória é silenciosa, o git respondendo `tree`. Sem prova nenhuma, a remoção continua sendo gravada. O `show` do serviço local de git virou `cat-file blob`: `show HEAD:<pasta>` devolvia a listagem da árvore com código 0, indistinguível de conteúdo de arquivo) |
-| E1-T9 | A pasta removida leva junto os arquivos que a observação conhece sob ela | Depois da E1-T8, apagar uma pasta com arquivos dentro não deixa rastro nenhum na linha do tempo: o watcher do core colapsa os `DELETED` dos filhos quando a pasta que os continha é apagada | E1-T8 | pendente (achado do T-0011 na execução da E1-T8 — `eventos do arquivo=1`, e esse 1 é o evento da criação, não o da remoção. A observação já sabe quais arquivos leu sob aquela pasta, e é o próprio ledger que tem a lista) |
+| E1-T9 | A pasta removida leva junto os arquivos que a observação conhece sob ela | A pasta apagada fecha, um a um, os arquivos que ela levou: cada um ganha o evento da própria remoção, e a pasta continua não virando evento | E1-T8 | feito (9 testes novos no módulo (`changeLedger`, 135 → 144); o arnês inteiro com **144 conferências verdes e nenhuma falha**, e o T-0011 aprovado com 13 conferências — a fase 3 deixou de ser medição: o arquivo de dentro tem dois eventos, sendo o último a remoção, e a linha do tempo ganha a linha dela. O gravador pergunta ao ledger quem ele conhece **sob** o caminho removido — o watcher do core colapsa os `DELETED` dos filhos, e a lista só existe lá — e conhecer arquivo sob um caminho passou a ser a terceira prova de que o caminho era pasta, depois da memória e do git. Quem já tinha remoção como evento atual não é fechado de novo, e a prova direta vence o registro antigo do ledger) |
 
 **E1 pronta quando:** com a observação ligada, qualquer alteração feita fora da IDE — por agente, script ou terminal — vira um evento com arquivo, origem, horário e snapshots antes/depois corretos.
 
@@ -292,7 +292,19 @@ não há promessa a ser quebrada. E o achado maior, que virou tarefa: apagar uma
 linha fantasma da pasta; agora não sobra nada. O motivo é do core do VS Code — o
 `coalesceEvents` do watcher descarta os `DELETED` dos filhos quando a pasta que os
 continha é apagada (`src/vs/platform/files/common/watcher.ts:438`), e o evento nunca
-chega ao produto. É a **E1-T9**.
+chega ao produto. Virou a **E1-T9**, e a E1-T9 fechou o buraco: o gravador pergunta ao
+ledger quem ele conhece sob o caminho removido e grava a remoção de cada um, na mesma
+sessão e no mesmo instante da pasta.
+
+**O que a E1-T9 deixou medido:** duas coisas, as duas com número. A primeira é o resíduo da
+E1-T8, que continua igual: a pasta vazia e fora do git que já existia antes de o app abrir
+segue virando evento (`pasta vazia=1`). A segunda nasceu do escopo escolhido — a lista de
+quem estava dentro vem do **ledger**, que só conhece o que a observação já leu. O arquivo
+que existe no `HEAD` e que a observação nunca viu continua sem evento nenhum
+(`eventos do arquivo=0` na fase 4 do T-0011): apagar uma pasta rastreada que nunca foi
+lida não deixa rastro dos arquivos dela. Fechar esse caso exige enumerar a árvore do
+`HEAD` (`git ls-tree`) e decidir sobre limite e caminhos ignorados numa pasta grande —
+tarefa própria, se ela vier a existir.
 
 ### Etapa E2 — Timeline e navegação
 
