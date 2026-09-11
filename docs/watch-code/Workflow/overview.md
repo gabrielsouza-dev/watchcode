@@ -259,7 +259,8 @@ O critério é o tipo de acoplamento de cada módulo inútil ao produto:
 | E1-T4 | Watcher do workspace | Observação do disco, detecção de escrita externa, agrupamento por pausa e criação do evento de origem `agent` | E1-T3 | feito (85 testes no módulo; manual T-0003 aprovado em 10/09/2026 — reprovou antes, por um registro duplicado) |
 | E1-T5 | Controle de observação | Comando e indicador de estado para **ativar/desativar** a observação pela interface; desligado, nenhuma sessão é aberta; estado refletido no status | E1-T4 | feito (92 testes no módulo; manual T-0004 aprovado em 10/09/2026 e depois coberto pelo arnês, saindo do registro) |
 | E1-T6 | Fechamento da E1 | Um script (sem agente nenhum) altera arquivos e cada alteração aparece no ledger com antes/depois corretos, com a observação ligada | E1-T5 | feito (93 testes no módulo; arnês ponta a ponta em `docs/watch-code/e2e`; 2 defeitos corrigidos) |
-| E1-T7 | Pasta não é alteração | `recordChange` devolve `Promise<ChangeEvent \| undefined>`: a pasta que chega ao watcher deixa de virar erro no log | E1-T6 | pendente (defeito 3 da E1-T6, com a decisão de contrato aprovada pelo usuário em 11/09/2026) |
+| E1-T7 | Pasta não é alteração | `recordChange` devolve `Promise<ChangeEvent \| undefined>`: a pasta que chega ao watcher deixa de virar erro no log | E1-T6 | feito (3 testes novos no módulo (`changeLedger`, 125 → 128); manual T-0011 aprovado com 7 conferências — a pasta sozinha não mexe no ledger, o arquivo dentro dela vira o único evento novo e o log do perfil sai limpo. O arnês ganhou uma varredura transversal: fechado o app, o log do perfil é conferido e qualquer erro ou aviso do `[watchCode]` reprova a execução — era exatamente o que o T-0010 deixava passar) |
+| E1-T8 | Remoção de pasta não é alteração | A pasta apagada deixa de virar evento: hoje a remoção de um diretório grava um evento para o **caminho da pasta**, sem antes e sem depois | E1-T7 | pendente (medido no T-0011 — `pasta=1`; registrada depois do fechamento da etapa, como a E1-T7) |
 
 **E1 pronta quando:** com a observação ligada, qualquer alteração feita fora da IDE — por agente, script ou terminal — vira um evento com arquivo, origem, horário e snapshots antes/depois corretos.
 
@@ -270,12 +271,12 @@ sem depois, o agrupamento em três sessões e o caminho ignorado que não vira e
 A execução encontrou dois defeitos que a suíte inteira não pegava: o git nunca era
 consultado e o "antes" não entrava no store de snapshots. Ambos corrigidos.
 
-**Aberto na E1:** um terceiro defeito ficou para depois. Quando nasce um arquivo numa
-pasta nova, a pasta também chega ao watcher, a leitura falha e o log grava
-`[watchCode] failed to record src`. O ledger fica **correto** — nenhum evento entra —,
-mas o produto escreve erro onde não houve erro. A correção mexe no contrato de
-`recordChange`, e o usuário a aprovou em 11/09/2026: é a **E1-T7**, executada como
-ciclo próprio, em High, por mudar contrato.
+**Aberto na E1:** o terceiro defeito da E1-T6 — a pasta que chegava ao watcher e virava
+erro no log — foi corrigido na **E1-T7**, executada como ciclo próprio, em High, por
+mudar contrato. Restou um caso irmão, **medido** no T-0011 e não corrigido: a
+**remoção** de uma pasta grava um evento para o caminho da pasta. Uma remoção não lê o
+disco, então a decisão "não é arquivo, não registra" não a alcança — e não há como
+perguntar o tipo a um caminho que já não existe. É a **E1-T8**.
 
 ### Etapa E2 — Timeline e navegação
 

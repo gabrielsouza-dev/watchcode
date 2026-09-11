@@ -35,6 +35,7 @@ Regra da E0: **baixo acoplamento apaga, alto acoplamento esconde.**
 - **E1-T5** Controle de observação — ativar/desativar pela interface, com indicador de estado
 - **E1-T6** Fechamento — com a observação ligada, um script altera arquivos e o ledger fica correto
 - **E1-T7** Pasta não é alteração — a pasta que chega ao watcher deixa de virar erro no log (registrada depois do fechamento da etapa; contrato aprovado em 11/09/2026)
+- **E1-T8** Remoção de pasta não é alteração — a pasta apagada deixa de virar evento (medida no T-0011 e registrada depois do fechamento da etapa)
 
 ### E2 · Timeline e navegação
 

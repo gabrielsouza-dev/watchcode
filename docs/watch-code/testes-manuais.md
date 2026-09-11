@@ -1106,3 +1106,104 @@ sem relação com a linha do tempo; na execução registrada acima ele não apar
 **aprovado.**
 
 
+## T-0011 — Pasta não é alteração
+
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | **E1-T7 — Pasta não é alteração** |
+| Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0011` |
+
+### Objetivo
+
+Provar que uma pasta que nasce dentro do workspace **não é uma alteração**: ela não
+entra no ledger, não aparece na linha do tempo e o produto não escreve erro no log.
+
+Um teste de unidade prova a decisão do recorder sobre um sistema de arquivos em
+memória. O que ele não prova é o que o watcher nativo entrega quando a pasta nasce de
+verdade, nem o que fica escrito no log do aplicativo — e foi exatamente aí que o
+defeito apareceu: no T-0010, que passou com 24 conferências, o perfil guardou a linha
+
+```text
+[error] [watchCode] failed to record src Unable to read file "...\workspace\src"
+  (Error: ... that is actually a directory)
+```
+
+### Pré-condições
+
+- Build atualizado: `npm run transpile-client` (o arnês aborta se o `out/` estiver
+  mais velho que as pastas de `src/vs` que ele acompanha).
+- Nada mais: a pasta observada e o perfil isolado são criados pelo próprio arnês, em
+  `%TEMP%/watchcode-manual/t-0011`.
+- Sem repositório git, de propósito: o arquivo novo nasce sem "antes", e o evento dele
+  é parcial como o de qualquer arquivo criado fora de um repositório.
+
+### Passos
+
+1. Abra a IDE numa pasta observada vazia, com perfil próprio, e confirme a observação
+   pela sonda: escreva `aquecimento.ts` e espere o evento dele no ledger.
+2. Com o app aberto, crie de fora — como faria um agente — a pasta `src/pacote`, e
+   nada dentro dela.
+3. Espere 2 s e confira o ledger: só a sonda, e nenhum evento apontando para a pasta.
+4. Escreva `src/pacote/regra.ts` com 12 linhas de código.
+5. Espere o ledger sossegar e confira: dois eventos, o segundo é o do arquivo, com
+   faixa `1-12`. Confira também a lista da timeline: `aquecimento.ts` e `regra.ts`,
+   nenhuma linha da pasta.
+6. Apague a pasta `src/pacote` inteira.
+7. Espere 2 s, espere o ledger sossegar e conte quantos eventos apontam para a pasta
+   e quantos para o arquivo.
+8. Confira o log do perfil: nenhuma linha de erro ou aviso escrita pelo produto.
+
+### Resultado esperado
+
+- Passo 3: o ledger não cresceu com a pasta, e nenhum evento tem `src/pacote` como
+  arquivo.
+- Passo 5: um evento novo, e **só** ele — o do arquivo —, com a faixa do arquivo
+  inteiro; a pasta não vira linha na lista.
+- Passo 7: **medição**, não promessa. A remoção de pasta não foi corrigida nesta
+  tarefa (decisão D2): o que se espera é o número, registrado no relatório.
+- Passo 8: nenhuma linha `[error]` ou `[warning]` com o prefixo `[watchCode]` em
+  `main.log` ou `window1/renderer.log`.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 11/09/2026. As sete
+conferências do cenário, na execução do arnês inteiro:
+
+```text
+T-0011 — Pasta nao e alteracao
+      janela montada em 16s
+      ledger: C:\Users\Gabriel S\AppData\Local\Temp\watchcode-manual\t-0011\user-data\User\workspaceStorage\3acf366c761ceb314ad394c29e21bbe0\changeLedger
+      observacao de pe: a sonda foi registrada em 2026-09-11T20:16:41.555Z
+  ok    fase 1: a pasta sozinha nao vira evento — eventos da pasta=0
+  ok    fase 1: o ledger nao cresceu com a pasta — eventos=1 sonda=1
+  ok    fase 2: so o arquivo virou evento — eventos=2 ultimo="src/pacote/regra.ts"
+  ok    fase 2: o arquivo novo tem a faixa do arquivo inteiro — faixa="1-12"
+  ok    fase 2: a pasta nao aparece na linha do tempo — linhas=["aquecimento.ts","regra.ts"]
+  ok    medicao (nao reprova): a pasta removida vira evento? — pasta=1 arquivo=1
+  ok    log: o produto nao escreveu erro nem aviso — linhas=65 problemas=[]
+
+veredito: PASSOU (11 testes manuais)
+```
+
+A pasta sozinha não mexeu no ledger, o arquivo dentro dela virou o único evento novo,
+e a linha do tempo mostrou os dois arquivos — nenhuma linha da pasta. O log do perfil
+saiu limpo: 65 linhas conferidas, nenhum erro nem aviso do produto. Antes da correção,
+esse mesmo cenário deixava a linha `[error] [watchCode] failed to record src/pacote`.
+
+O cenário rodou duas vezes: sozinho (`T-0011`, aprovado) e na execução do arnês
+inteiro, que está acima — os **onze** testes manuais passaram na mesma execução, e a
+varredura do log passou em todos eles, inclusive no T-0010, que é quem cria pasta nova
+hoje.
+
+**A medição do passo 7 achou um defeito que a tarefa não corrigiu.** Apagar a pasta
+grava um evento para o **caminho da pasta** (`pasta=1`): a remoção não lê o disco,
+então a decisão desta tarefa — "não é arquivo, não registra" — não a alcança. O evento
+do arquivo removido (`arquivo=1`) é o legítimo. A pendência ficou registrada no
+`overview.md`, junto da linha da E1-T7.
+
+### Situação
+
+**aprovado.**
+
+
+
