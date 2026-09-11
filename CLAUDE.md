@@ -38,6 +38,7 @@ Regras:
   5. **Resultado obtido** — preenchido na execução, com data e o que de fato aconteceu.
   6. **Situação** — `pendente`, `aprovado` ou `reprovado`.
 - Um teste manual só pode ser marcado como `aprovado` após ser executado de fato. O registro não pode ser escrito retroativamente como se tivesse sido executado.
+- Os arquivos usados nos testes manuais devem ter **extensão de código** — `.cs`, `.js` ou `.ts` —, nunca extensão de texto puro. O produto observa o disco e salta para o arquivo: o teste tem de exercitar arquivos como os do mundo real, inclusive de linguagem que a IDE não conhece (`.cs`). Quando o cenário precisar de mais de um arquivo, use as três extensões.
 - Se a execução falhar, o resultado obtido e a correção aplicada devem ser registrados no próprio teste, sem apagar o histórico.
 - Quando houver teste manual pendente, ele deve ser informado no relatório final da tarefa.
 

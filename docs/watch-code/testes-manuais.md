@@ -774,4 +774,220 @@ fica como candidato para a E8-T2, que trata de comandos e atalhos que não são 
 produto.
 
 
+## T-0008 — Salto ao local da alteração
+
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | **E2-T4 — Salto ao local** |
+| Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0008` |
+
+### Objetivo
+
+Provar, na janela, que ir do evento à linha alterada acontece **em um gesto**: o
+arquivo abre, a faixa alterada fica selecionada e visível, a aba é de
+pré-visualização, o foco não é roubado — e, quando não há o que abrir, aparece
+aviso em vez de nada. Foco de teclado, aba e rolagem não têm como ser provados por
+teste automatizado.
+
+### Pré-condições
+
+- Build fresco: `npm run transpile-client`.
+- Workspace que é **repositório git**, com três arquivos já commitados — o commit é
+  o "antes" da primeira alteração de cada um:
+  - `alvo.ts` — 200 linhas de TypeScript, a alteração na linha 100;
+  - `historico.js` — 200 linhas de JavaScript, alterado duas vezes;
+  - `apagado.cs` — arquivo de C#, alterado e depois apagado pelo script.
+- As três extensões são de propósito: o produto observa o disco e salta para o
+  arquivo sem saber nada da linguagem, e o `.cs` prova isso (nenhuma extensão do
+  fork entende C#).
+- O arnês abre o app em perfil isolado, com a observação ligada, e comanda a
+  interface pelo Playwright; o ledger é lido do disco.
+- **A janela do app não pode ser tocada durante a execução**: o teste mede foco de
+  teclado e posição de rolagem.
+
+### Passos
+
+1. O script escreve em `alvo.ts` (linha 100) e em `historico.js`; o ledger precisa
+   registrar as duas alterações.
+2. Com o foco no editor, aperte **F5**: a view abre e salta para a alteração mais
+   antiga (a sonda de aquecimento).
+3. Aperte **F5** de novo: o editor vai para `alvo.ts`, com o cursor na linha 100 e
+   a linha visível.
+4. Confira a aba: uma só, em pré-visualização (sem o itálico de aba fixada).
+5. No editor, vá para a linha 150 (Ctrl+G); arraste o cursor da barra de rolagem
+   para baixo e clique na linha do `alvo.ts` na lista: o clique traz a alteração de
+   volta para o centro e o cursor volta para a linha 100.
+6. Com a lista em foco, aperte **ArrowDown**: o editor troca para `historico.js` e o
+   foco continua na lista.
+7. Arraste a barra e aperte **Enter**: o Enter salta de novo, mesmo na linha que já
+   é o evento ativo, e centraliza outra vez.
+8. Dê **duplo clique** na linha do `alvo.ts`: a aba fica fixada, e o F5 seguinte
+   abre outra aba em vez de reusar a fixada.
+9. O script reescreve `apagado.cs` e depois apaga o arquivo; percorra a lista com
+   **ArrowDown** até o fim.
+10. A primeira alteração do `historico.js` continua na lista como entrada
+    histórica, apontando para uma faixa que já não existe no arquivo.
+
+### Resultado esperado
+
+- Passo 2 e 3: o arquivo da alteração abre, com o cursor na linha alterada e a
+  linha dentro da área visível.
+- Passo 4: uma aba só, sem itálico.
+- Passo 5: o clique desfaz a rolagem e o cursor volta para a linha 100.
+- Passo 6: a seta troca o arquivo aberto e o foco fica na lista.
+- Passo 7: o Enter reaplica o salto na linha já ativa.
+- Passo 8: a aba fixada não é reusada.
+- Passo 9: dois avisos diferentes — "no longer in the workspace" para a alteração
+  cujo arquivo sumiu, "removed the file" para a remoção — e nenhum editor do
+  `apagado.cs` é aberto.
+- Passo 10: a entrada histórica abre o arquivo e para na última linha dele, sem
+  exceção.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 11/09/2026:
+
+```text
+  ok    passo 1: o ledger registrou a alteracao — eventos do alvo=1 linhas na tela=[]
+  ok    passo 2: o F5 leva ao arquivo da alteracao mais antiga — editor ativo="aquecimento.txt"
+  ok    passo 3: o editor vai para o arquivo da alteracao — editor ativo="alvo.ts"
+  ok    passo 3: o cursor cai na linha alterada — posicao="Ln 100, Col 61 (60 selected)"
+  ok    passo 3: a linha alterada fica visivel — linhas visiveis=79..120
+  ok    passo 4: uma aba so, de pre-visualizacao — abas=1 fixada=false
+  ok    passo 5: a barra rolou a vista antes do clique — cursor da barra 510 -> 530
+  ok    passo 5: o clique traz a alteracao de volta para o centro — cursor da barra 530 -> 347
+  ok    passo 5: o cursor volta para a linha alterada — posicao="Ln 100, Col 61 (60 selected)"
+  ok    passo 6: a seta troca o arquivo aberto — editor ativo="historico.js" selecionadas=["historico.js"]
+  ok    passo 6: o foco continua na lista — foco na lista=true
+  ok    passo 7: o Enter salta de novo, mesmo na linha ja ativa — posicao="Ln 100, Col 46 (45 selected)"
+  ok    passo 7: a barra rolou a vista antes do Enter — cursor da barra 347 -> 367
+  ok    passo 7: a centralizacao acontece outra vez — cursor da barra 367 -> 347
+  ok    passo 8: o duplo clique fixa a aba — abas=2 fixada=true
+  ok    passo 8: a aba fixada nao e reusada pelo salto seguinte — abas=2
+  ok    passo 9: o passeio visitou as alteracoes da sessao — linhas=["aquecimento.txt","alvo.ts","historico.js","apagado.cs","apagado.cs","historico.js","historico.js","historico.js"]
+  ok    passo 9: o arquivo que sumiu avisa, em vez de abrir — avisos=["The file of this change is no longer in the workspace.","This change removed the file. Nothing to open."]
+  ok    passo 9: a remocao registrada tem o proprio aviso — avisos=["The file of this change is no longer in the workspace.","This change removed the file. Nothing to open."]
+  ok    passo 9: nenhum editor do arquivo apagado e aberto — editores=["aquecimento.txt","alvo.ts","historico.js","historico.js","historico.js","historico.js","historico.js","historico.js"]
+  ok    passo 10: a entrada historica para na ultima linha do arquivo — posicao="Ln 6, Col 1"
+
+veredito: PASSOU (2 testes manuais)
+```
+
+A evidência da rolagem é o **cursor da barra** (a posição horizontal do controle
+deslizante), e não os números de linha desenhados na margem: a janela do arnês não
+desenha quadros o tempo todo, e a margem fica com o desenho antigo depois de uma
+rolagem programática. O cursor da barra acompanha a rolagem na hora.
+
+O passo 10 merece leitura: o arquivo `historico.js` termina com quebra de linha,
+então o editor conta **seis** linhas — a última vazia. A faixa registrada (linha
+100) não existe mais, e o salto para na última linha do que existe hoje.
+
+### Situação
+
+**aprovado.**
+
+### Histórico de execução
+
+Foram cinco execuções até passar, e cada reprovação encontrou um defeito de
+verdade — três no produto.
+
+**Primeira execução — 7 das 15 conferências reprovadas, só o arquivo abria.** O
+salto abria o arquivo certo e parava em `Ln 1, Col 1`: não havia faixa de linhas
+para revelar. A causa estava no ledger: `ChangeEvent.linesChanged` é declarado no
+contrato e lido pela linha do tempo, mas **ninguém o gravava** — o
+`changeRecorderService` montava o evento sem o campo. O produtor é da E3-T1, que
+vem depois. Decidido com o usuário: um produtor mínimo já (`changedLineRange`, no
+módulo do ledger), e a E3-T1 troca por hunks no mesmo campo.
+
+**Segunda execução — as linhas apareceram, mas a lista só mostrava três.** Os
+arquivos de teste não eram repositório git: sem "antes", o evento nasce parcial e
+a faixa cobria o arquivo inteiro (`[1,200]`), o que fez o cursor parar na linha
+200. Além disso, os ajudantes do teste procuravam linhas da lista pela posição no
+DOM, e a view desenha poucas linhas de cada vez. Correções: o cenário monta um
+repositório git (o commit é o "antes") e o passeio pela lista passou a andar com a
+seta, que traz cada linha para a área visível.
+
+**Terceira execução — as setas não andavam.** `ArrowDown` movia o foco e deixava a
+seleção para trás: a lista do workbench só faz a seleção seguir o foco quando
+recebe `selectionNavigation: true`, e a nossa não recebia. Com o ajuste, a seta
+passou a trocar o evento ativo — e a conferência "o foco continua na lista"
+continuou valendo.
+
+**Quarta execução — o passeio parava na primeira linha.** O editor roubava o foco a
+cada salto: sem opções vindas do gatilho, `openEditor` recebia `preserveFocus`
+ausente, e ausente não é o mesmo que falso — o VS Code trata como "pode focar".
+Corrigido com as opções padrão do produto (pré-visualização e foco onde estava),
+que é o que a decisão D2 pedia desde o começo.
+
+**Quinta execução — a centralização não era medida.** A conferência comparava os
+números de linha desenhados na margem, que ficam velhos depois de uma rolagem
+programática (a janela do arnês não desenha quadros o tempo todo). Trocada pelo
+cursor da barra de rolagem, que acompanha a rolagem na hora. Nessa mesma passagem
+os arquivos de teste passaram a ser `.ts`, `.js` e `.cs`, conforme a regra nova
+do `CLAUDE.md`.
+
+### Pendência registrada
+
+A entrada histórica que aponta para linhas que já não existem para na última linha
+do arquivo, **sem aviso**. O aviso de "esse trecho mudou desde então" é da E5-T1,
+por decisão aprovada (D7); o salto não mente, mas também não explica.
+
+
+## T-0009 — Salto sem centralizar a alteração
+
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | **E2-T4 — Salto ao local** (decisão D4) |
+| Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0009` |
+
+### Objetivo
+
+Provar o outro valor da configuração `watchCode.timeline.centerOnReveal`: com ela
+desligada, o salto **não mexe na rolagem** quando as linhas alteradas já estão
+visíveis. Sem este teste, só um dos dois modos ficaria comprovado.
+
+### Pré-condições
+
+- As mesmas do T-0008, com `.vscode/settings.json` no workspace preparado,
+  escrito **antes** de o app abrir:
+
+  ```json
+  { "watchCode.timeline.centerOnReveal": false }
+  ```
+
+### Passos
+
+1. Aperte **F5** duas vezes: o salto continua indo para `alvo.ts`, na linha 100.
+2. Clique na linha do `alvo.ts` e arraste o cursor da barra de rolagem um pouco
+   para baixo, de modo que a linha 100 continue visível.
+3. Aperte **Enter**.
+
+### Resultado esperado
+
+- Passo 1: o arquivo abre com o cursor na linha 100, como no modo padrão.
+- Passo 2: a barra anda depois do arrasto (senão a conferência do passo 3 não
+  provaria nada).
+- Passo 3: o cursor volta para a linha 100 e a rolagem **não se move**.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 11/09/2026:
+
+```text
+  ok    passo 1: o salto continua com a configuracao desligada — editor ativo="alvo.ts" posicao="Ln 100, Col 61 (60 selected)"
+  ok    passo 2: a barra rolou a vista antes do Enter — cursor da barra 347 -> 367
+  ok    passo 2: o salto nao rola a tela — cursor da barra 367 -> 367
+
+veredito: PASSOU (2 testes manuais)
+```
+
+Os dois valores da configuração ficam assim comprovados na janela: com o padrão
+(`true`), o passo 5 e o passo 7 do T-0008 mostram a rolagem voltando ao centro; com
+`false`, o cursor da barra fica onde estava.
+
+### Situação
+
+**aprovado.**
+
+
 
