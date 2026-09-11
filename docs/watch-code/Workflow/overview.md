@@ -224,6 +224,8 @@ Só há **um** lado de código no par antes/depois: o trecho atual. O "depois" �
 
 Slug sugerido para a SPEC: o próprio id em minúsculas (ex.: `e1-t2-ledger-snapshots`).
 
+**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **125 casos no `changeLedger` e 40 no `watchCode`**.
+
 ### Etapa E0 — Enxugamento do fork
 
 Roda **antes** da E1 e não renumera nada: é a preparação do fork para receber o produto.
@@ -251,11 +253,11 @@ O critério é o tipo de acoplamento de cada módulo inútil ao produto:
 
 | ID | Tarefa | Entregável | Depende | Status |
 | --- | --- | --- | --- | --- |
-| E1-T1 | Contratos do evento | Interfaces `ChangeEvent`/`ChangeSession`, versão de schema, validação e testes | — | feito (revisões 3 e 4; falta pipeline do repositório) |
+| E1-T1 | Contratos do evento | Interfaces `ChangeEvent`/`ChangeSession`, versão de schema, validação e testes | — | feito (revisões 3 e 4; ressalva fechada em 11/09/2026 — "falta pipeline do repositório" era a falta de `node_modules` no checkout da época; os critérios 1 e 6 da §8 passaram com `npm run typecheck-client` e `npm run valid-layers-check`, os dois sem saída e com código 0) |
 | E1-T2 | Ledger e snapshots | Gravação/leitura de eventos, store endereçado por hash, hash de arquivo, persistência por workspace | E1-T1 | feito (44 testes no módulo) |
-| E1-T3 | Baseline do "antes" | Estado anterior por git (`HEAD`) e por store de sombra; regra do evento parcial quando não há baseline | E1-T2 | feito (64 testes no módulo; 2 testes manuais pendentes) |
-| E1-T4 | Watcher do workspace | Observação do disco, detecção de escrita externa, agrupamento por pausa e criação do evento de origem `agent` | E1-T3 | feito (85 testes no módulo; 1 teste manual pendente) |
-| E1-T5 | Controle de observação | Comando e indicador de estado para **ativar/desativar** a observação pela interface; desligado, nenhuma sessão é aberta; estado refletido no status | E1-T4 | feito (92 testes no módulo; 1 teste manual pendente) |
+| E1-T3 | Baseline do "antes" | Estado anterior por git (`HEAD`) e por store de sombra; regra do evento parcial quando não há baseline | E1-T2 | feito (64 testes no módulo; manuais T-0001 e T-0002 aprovados em 10/09/2026) |
+| E1-T4 | Watcher do workspace | Observação do disco, detecção de escrita externa, agrupamento por pausa e criação do evento de origem `agent` | E1-T3 | feito (85 testes no módulo; manual T-0003 aprovado em 10/09/2026 — reprovou antes, por um registro duplicado) |
+| E1-T5 | Controle de observação | Comando e indicador de estado para **ativar/desativar** a observação pela interface; desligado, nenhuma sessão é aberta; estado refletido no status | E1-T4 | feito (92 testes no módulo; manual T-0004 aprovado em 10/09/2026 e depois coberto pelo arnês, saindo do registro) |
 | E1-T6 | Fechamento da E1 | Um script (sem agente nenhum) altera arquivos e cada alteração aparece no ledger com antes/depois corretos, com a observação ligada | E1-T5 | feito (93 testes no módulo; arnês ponta a ponta em `docs/watch-code/e2e`; 2 defeitos corrigidos) |
 
 **E1 pronta quando:** com a observação ligada, qualquer alteração feita fora da IDE — por agente, script ou terminal — vira um evento com arquivo, origem, horário e snapshots antes/depois corretos.
@@ -274,7 +276,7 @@ consultado e o "antes" não entrava no store de snapshots. Ambos corrigidos.
 | E2-T1 | Serviço de timeline | Consultas cronológicas, filtro por arquivo, cálculo de `current`/`history`, eventos observáveis | E1-T6 | feito (113 testes no módulo, 15 novos) |
 | E2-T2 | View da timeline | Lista virtualizada na Activity Bar com arquivo, linhas, hora e origem; estados vazio e de erro | E2-T1 | feito (18 testes no módulo, 11 novos; manual T-0005 aprovado. A lista ficou dentro do Explorer, recolhível abaixo da árvore, e não na Activity Bar — decisão D5 do plano, tomada com o usuário) |
 | E2-T3 | Anterior/Próximo | Comandos, keybindings e seleção do evento ativo na lista | E2-T2 | feito (27 testes no módulo, 9 novos; manual T-0006 aprovado com 16 conferências. A tecla é o **F5**, com Shift+F5 para voltar — decidido com o usuário na revisão da fileira de F1 a F12) |
-| E2-T4 | Salto ao local | Abrir o arquivo, revelar e selecionar as linhas; tratar arquivo ausente e entrada `history` | E2-T3 | feito (21 testes no módulo, 9 novos do salto e 12 do produtor de faixa; manual T-0008 e T-0009 aprovados com 25 conferências. O campo `linesChanged` era declarado e lido e **nunca gravado** — sem ele o salto abria o arquivo e parava em `Ln 1, Col 1`; decisão do usuário antecipou um produtor mínimo no gravador, que a E3-T1 troca por hunks. Três defeitos acharam-se no caminho: as setas moviam o foco e não a seleção, o editor roubava o foco a cada salto, e a posição pedida por opção de abertura não movia a vista) |
+| E2-T4 | Salto ao local | Abrir o arquivo, revelar e selecionar as linhas; tratar arquivo ausente e entrada `history` | E2-T3 | feito (9 testes novos no salto (`watchCode`, 30 → 39) e 12 no produtor de faixa (`changeLedger`, 112 → 124); manual T-0008 e T-0009 aprovados com 25 conferências. O campo `linesChanged` era declarado e lido e **nunca gravado** — sem ele o salto abria o arquivo e parava em `Ln 1, Col 1`; decisão do usuário antecipou um produtor mínimo no gravador, que a E3-T1 troca por hunks. Três defeitos acharam-se no caminho: as setas moviam o foco e não a seleção, o editor roubava o foco a cada salto, e a posição pedida por opção de abertura não movia a vista) |
 | E2-T5 | Fechamento da E2 | Percorrer em sequência todas as alterações de uma sessão do agente | E2-T4 | pendente |
 | E2-T6 | Novo e visualizado | Selo por alteração, gravado no próprio evento; o lote é **derivado** — fica visualizado quando todas as suas alterações estiverem | E2-T5 | pendente |
 | E2-T7 | Arquivos alterados no Explorer | Decoração nos arquivos que o agente tocou, pelo `IDecorationsService` — sem tocar no Explorer | E2-T6 | pendente |
@@ -284,7 +286,7 @@ consultado e o "antes" não entrava no store de snapshots. Ambos corrigidos.
 
 | ID | Tarefa | Entregável | Depende | Status |
 | --- | --- | --- | --- | --- |
-| E3-T1 | Cálculo de diff | Diff a partir dos snapshots: hunks, ranges e contagem de linhas, com testes | E2-T5 | pendente |
+| E3-T1 | Cálculo de diff | Diff a partir dos snapshots: hunks, ranges e contagem de linhas, com testes. **Substitui o produtor provisório** de `linesChanged` (`changeLedger/common/changedLines.ts`, antecipado na E2-T4 por decisão D9): o arquivo e seus testes saem quando os hunks entrarem, sem os dois conviverem | E2-T5 | pendente |
 | E3-T2 | Documentos virtuais | Provedores `aih-before:` e `aih-after:` (read-only) servindo os snapshots | E3-T1 | pendente |
 | E3-T3 | Decorações | Linhas adicionadas em verde e removidas em vermelho, gutter e visão geral | E3-T2 | pendente |
 | E3-T4 | Modos de visualização | Somente alterações (com contexto de N linhas), somente anterior e ambos, alternáveis e persistentes | E3-T3 | pendente |
