@@ -123,8 +123,80 @@ interface IManualTest {
 	readonly title: string;
 	/** Monta o estado inicial da pasta observada, antes de o app abrir. */
 	readonly prepare?: (workspace: string) => void;
+	/**
+	 * Corre antes da sonda de aquecimento, ainda com o ledger vazio.
+	 *
+	 * A sonda sempre escreve, então um teste que precise ver a interface sem
+	 * nenhuma alteração registrada tem de olhar antes dela.
+	 */
+	readonly beforeWarmUp?: (session: ISession, t: Assertions) => Promise<void>;
 	/** Executa os passos e as conferências do teste. */
 	readonly run: (session: ISession, t: Assertions) => Promise<void>;
+}
+
+
+/** Seletor do cabeçalho da view da timeline, dentro do Explorer. */
+const TIMELINE_HEADER_SELECTOR = '.pane-header:has-text("Timeline")';
+
+/** Texto do estado vazio, copiado da view. */
+const TIMELINE_EMPTY_MESSAGE = 'No changes were observed yet.';
+
+/** Classe do corpo da Timeline nativa: se ela saiu da janela, isto não existe. */
+const NATIVE_TIMELINE_BODY_SELECTOR = '.timeline-tree-view';
+
+/** Cabeçalho da view da timeline. */
+function timelineHeader(page: Page): Locator {
+	return page.locator(TIMELINE_HEADER_SELECTOR);
+}
+
+/** Se a view está expandida, pelo que o próprio cabeçalho anuncia. */
+async function timelineExpanded(page: Page): Promise<boolean> {
+	return await timelineHeader(page).first().getAttribute('aria-expanded') === 'true';
+}
+
+/** Expande ou recolhe a view com o gesto do usuário: um clique no cabeçalho. */
+async function toggleTimelineView(page: Page): Promise<void> {
+	await timelineHeader(page).first().click();
+	await delay(600);
+}
+
+/** Nomes de arquivo mostrados pela lista, na ordem em que aparecem. */
+async function timelineRowNames(page: Page): Promise<readonly string[]> {
+	return await page.locator('.watch-code-timeline .watch-code-timeline-row .top .name').allTextContents();
+}
+
+/** A segunda faixa de cada linha, na ordem. */
+async function timelineRowDetails(page: Page): Promise<readonly string[]> {
+	return await page.locator('.watch-code-timeline .watch-code-timeline-row .detail').allTextContents();
+}
+
+/** Espera a linha de um arquivo aparecer e devolve a posição dela. */
+async function waitForTimelineRow(page: Page, file: string, timeoutMs = EVENT_TIMEOUT_MS): Promise<number> {
+	const deadline = Date.now() + timeoutMs;
+
+	while (Date.now() < deadline) {
+		const names = await timelineRowNames(page);
+		const index = names.indexOf(file);
+
+		if (index >= 0) {
+			return index;
+		}
+
+		await delay(500);
+	}
+
+	return -1;
+}
+
+/** Espera um texto aparecer dentro de um elemento. */
+async function waitForText(locator: Locator, text: string, timeoutMs = 10000): Promise<boolean> {
+	try {
+		await locator.filter({ hasText: text }).first().waitFor({ state: 'visible', timeout: timeoutMs });
+
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /** Descrição curta de um evento, para a linha de evidência. */
@@ -413,7 +485,7 @@ async function waitForWorkbenchPage(browser: Browser, deadline: number): Promise
 }
 
 /** Abre o app num cenário próprio e deixa a observação pronta para medir. */
-async function openSession(test: IManualTest): Promise<IOpenedSession> {
+async function openSession(test: IManualTest, t: Assertions): Promise<IOpenedSession> {
 	const scratch = scratchPaths(DEFAULT_ROOT, test.id.toLowerCase());
 
 	killLeftovers(scratch.userData);
@@ -441,6 +513,8 @@ async function openSession(test: IManualTest): Promise<IOpenedSession> {
 	await delay(APP_SETTLE_MS);
 
 	const session: ISession = { page, paths, ledger, outputLog };
+
+	await test.beforeWarmUp?.(session, t);
 
 	await warmUpObservation(session);
 
@@ -638,7 +712,72 @@ const TESTS: readonly IManualTest[] = [
 		t.check('passo 12: o evento novo aponta para note.txt', last?.fileUri === NOTE_FILE, `fileUri=${last?.fileUri ?? 'nenhum'}`);
 		t.check('passo 12: o depois guardado é a escrita nova', session.ledger.snapshot(last?.afterHash) === ON_WRITE, `depois=${JSON.stringify(session.ledger.snapshot(last?.afterHash))}`);
 	}
-}
+},
+{
+	id: 'T-0005',
+	title: 'View da timeline no Explorer',
+	prepare: workspace => writeWorkspaceFile(workspace, NOTE_FILE, INITIAL_VERSION),
+	beforeWarmUp: async (session, t) => {
+		const page = session.page;
+		const header = timelineHeader(page);
+		const headers = await header.count();
+
+		// Passo 3: a view do produto está na janela, e a Timeline nativa não.
+		t.check('passo 3: existe uma única view "Timeline" na janela', headers === 1, headers + ' cabeçalho(s) com "Timeline"');
+		t.check('passo 3: o corpo da Timeline nativa não está na janela', await page.locator(NATIVE_TIMELINE_BODY_SELECTOR).count() === 0, NATIVE_TIMELINE_BODY_SELECTOR);
+
+		// Passo 4: ela nasce recolhida.
+		t.check('passo 4: a view nasce recolhida', !await timelineExpanded(page), 'aria-expanded=' + await header.first().getAttribute('aria-expanded'));
+
+		// Passo 5: expandir mostra a lista, e sem nenhuma alteração ela anuncia o vazio.
+		await toggleTimelineView(page);
+
+		t.check('passo 5: o clique no cabeçalho expande a view', await timelineExpanded(page), 'aria-expanded=' + await header.first().getAttribute('aria-expanded'));
+
+		const message = page.locator('.watch-code-timeline-message');
+		const emptyShown = await waitForText(message, TIMELINE_EMPTY_MESSAGE);
+
+		t.check('passo 5: sem alteração nenhuma, a view anuncia o vazio', emptyShown, 'mensagem=' + JSON.stringify(await message.textContent()));
+		const retryButtons = await page.locator('.watch-code-timeline-message .monaco-button').count();
+
+		t.check('passo 5: sem erro, não há botão de tentar de novo', retryButtons === 0, 'botões de tentar de novo=' + retryButtons);
+		t.check('passo 5: a lista está vazia', await page.locator('.watch-code-timeline .monaco-list-row').count() === 0, 'linhas na lista');
+	},
+	run: async (session, t) => {
+		const page = session.page;
+
+		// Passo 6: a sonda de aquecimento foi escrita com a janela aberta; a lista
+		// precisa tê-la mostrado sem nenhuma recarga.
+		const probeIndex = await waitForTimelineRow(page, WARM_UP_FILE);
+
+		t.check('passo 6: a alteração feita com a janela aberta aparece na lista', probeIndex >= 0, 'linhas=' + JSON.stringify(await timelineRowNames(page)));
+
+		const details = await timelineRowDetails(page);
+		const probeDetail = details[probeIndex] ?? '';
+
+		t.check('passo 6: a linha mostra a hora e a origem', /\d{2}:\d{2}/.test(probeDetail) && probeDetail.includes('Disk'), 'detalhe=' + JSON.stringify(probeDetail));
+
+		// Passo 7: uma segunda alteração, medida pelo crescimento da lista.
+		const before = await timelineRowNames(page);
+
+		writeWorkspaceFile(session.paths.workspace, NOTE_FILE, 'alterado com a janela aberta\n');
+
+		const noteIndex = await waitForTimelineRow(page, NOTE_FILE);
+		const after = await timelineRowNames(page);
+
+		t.check('passo 7: a segunda alteração entra na lista', noteIndex >= 0, 'linhas=' + JSON.stringify(after));
+		t.check('passo 7: a lista cresceu uma linha e manteve a anterior', after.length === before.length + 1, before.length + ' -> ' + after.length);
+		t.check('passo 7: a alteração nova ficou depois da primeira', noteIndex >= 0 && noteIndex === after.length - 1, 'posição=' + noteIndex + ' de ' + after.length);
+
+		// Passo 8: recolher de novo, com o mesmo gesto.
+		await toggleTimelineView(page);
+
+		t.check('passo 8: o clique recolhe a view de novo', !await timelineExpanded(page), 'aria-expanded=' + await timelineHeader(page).first().getAttribute('aria-expanded'));
+		const listVisible = await page.locator('.watch-code-timeline .monaco-list').isVisible();
+
+		t.check('passo 8: recolhida, a lista sai de cena', !listVisible, 'lista visível=' + listVisible);
+	}
+},
 ];
 
 /** Abre o cenário, roda o teste, fecha o app e devolve se tudo passou. */
@@ -647,7 +786,7 @@ async function runTest(test: IManualTest): Promise<boolean> {
 	let opened: IOpenedSession | undefined;
 
 	try {
-		opened = await openSession(test);
+		opened = await openSession(test, t);
 		await test.run(opened.session, t);
 	} catch (error) {
 		t.check('execução do teste', false, error instanceof Error ? error.message : String(error));

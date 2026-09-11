@@ -272,7 +272,7 @@ consultado e o "antes" não entrava no store de snapshots. Ambos corrigidos.
 | ID | Tarefa | Entregável | Depende | Status |
 | --- | --- | --- | --- | --- |
 | E2-T1 | Serviço de timeline | Consultas cronológicas, filtro por arquivo, cálculo de `current`/`history`, eventos observáveis | E1-T6 | feito (113 testes no módulo, 15 novos) |
-| E2-T2 | View da timeline | Lista virtualizada na Activity Bar com arquivo, linhas, hora e origem; estados vazio e de erro | E2-T1 | pendente |
+| E2-T2 | View da timeline | Lista virtualizada na Activity Bar com arquivo, linhas, hora e origem; estados vazio e de erro | E2-T1 | feito (18 testes no módulo, 11 novos; manual T-0005 aprovado. A lista ficou dentro do Explorer, recolhível abaixo da árvore, e não na Activity Bar — decisão D5 do plano, tomada com o usuário) |
 | E2-T3 | Anterior/Próximo | Comandos, keybindings e seleção do evento ativo na lista | E2-T2 | pendente |
 | E2-T4 | Salto ao local | Abrir o arquivo, revelar e selecionar as linhas; tratar arquivo ausente e entrada `history` | E2-T3 | pendente |
 | E2-T5 | Fechamento da E2 | Percorrer em sequência todas as alterações de uma sessão do agente | E2-T4 | pendente |

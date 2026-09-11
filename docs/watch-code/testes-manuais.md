@@ -409,4 +409,114 @@ corrigida.
 
 Onde o registro duplicado antigo ficou no perfil de um desenvolvedor, ele continua
 lá: limpar histórico já gravado é manutenção do ledger, não desta correção.
+---
+
+## T-0005 — View da timeline no Explorer
+
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | E2-T2 — View da timeline |
+| Situação | aprovado |
+| Data de execução | 11/09/2026 |
+
+### Objetivo
+
+Comprovar que a lista da linha do tempo aparece na janela, dentro do Explorer,
+abaixo da árvore de arquivos, recolhida, e que cada alteração registrada vira uma
+linha com arquivo, hora e origem — crescendo com a janela aberta, sem recarregar.
+
+Um teste automatizado não cobre isto porque a view só existe montada dentro do
+workbench: a suíte de unidade roda no Node, sem DOM, e cobre apenas a derivação da
+linha (`timelineRows.ts`). O que sobra — registro da view, altura da lista, estado
+vazio, atualização incremental e o recolher/expandir — só se prova no aplicativo
+em execução.
+
+### Pré-condições
+
+- Build atualizado: `npm run compile-client` (ou `npm run transpile-client`) concluído sem erros.
+- Uma pasta de teste vazia. Ex.: `D:	mpwc-timeline`.
+- A IDE aberta nessa pasta, pelo script `watchcode.bat`.
+- Observação **ligada**: o item `$(eye) Watch Code` visível na barra de status.
+- A janela **não pode ser tocada** durante a execução: o arnês dirige a interface, e um clique de fora muda o estado medido (foi o que reprovou uma das execuções).
+
+### Passos
+
+1. Prepare a pasta de teste:
+
+   ```powershell
+   mkdir D:	mpwc-timeline
+   "versao inicial" | Out-File -Encoding utf8 D:	mpwc-timeline
+ote.txt
+   ```
+
+2. Abra a pasta na IDE:
+
+   ```powershell
+   .watchcode.bat D:	mpwc-timeline
+   ```
+
+3. No Explorer, confira que existe **uma** view "Timeline", abaixo da árvore de
+   arquivos, e que ela está **recolhida** (seta para a direita no título). A
+   Timeline nativa do VS Code (histórico de commits do arquivo) não aparece.
+4. Clique no título da view para expandir. Sem nenhum evento no ledger, ela
+   anuncia **No changes were observed yet.** e não mostra nenhuma linha.
+5. Em um terminal **de fora** da IDE, altere um arquivo da pasta observada:
+
+   ```powershell
+   "alterado com a janela aberta" | Out-File -Encoding utf8 D:	mpwc-timeline
+ote.txt
+   ```
+
+6. Sem recarregar a janela, confira a linha nova: nome do arquivo, hora local e
+   origem "Disk".
+7. Altere o arquivo outra vez e confira a lista crescendo, com a alteração nova
+   no fim.
+8. Clique no título de novo: a view recolhe e a lista sai de cena.
+
+### Resultado esperado
+
+- Passo 3: uma única view "Timeline", recolhida, dentro do Explorer.
+- Passo 4: mensagem de vazio, zero linhas e nenhum botão de tentar de novo.
+- Passo 6: uma linha com o arquivo (`note.txt`), a hora `HH:MM` local e a origem "Disk".
+- Passo 7: a lista cresce uma linha por alteração, na ordem cronológica.
+- Passo 8: recolhida, a lista sai de cena.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 11/09/2026:
+
+```text
+  ok    passo 3: existe uma única view "Timeline" na janela — 1 cabeçalho(s) com "Timeline"
+  ok    passo 3: o corpo da Timeline nativa não está na janela — .timeline-tree-view
+  ok    passo 4: a view nasce recolhida — aria-expanded=false
+  ok    passo 5: o clique no cabeçalho expande a view — aria-expanded=true
+  ok    passo 5: sem alteração nenhuma, a view anuncia o vazio — mensagem="No changes were observed yet."
+  ok    passo 5: sem erro, não há botão de tentar de novo — botões de tentar de novo=0
+  ok    passo 5: a lista está vazia — linhas na lista
+  ok    passo 6: a alteração feita com a janela aberta aparece na lista — linhas=["aquecimento.txt"]
+  ok    passo 6: a linha mostra a hora e a origem — detalhe="23:24 · Disk"
+  ok    passo 7: a segunda alteração entra na lista — linhas=["aquecimento.txt","note.txt"]
+  ok    passo 7: a lista cresceu uma linha e manteve a anterior — 1 -> 2
+  ok    passo 7: a alteração nova ficou depois da primeira — posição=1 de 2
+  ok    passo 8: o clique recolhe a view de novo — aria-expanded=false
+  ok    passo 8: recolhida, a lista sai de cena — lista visível=false
+
+veredito: PASSOU
+```
+
+O arquivo `aquecimento.txt` é a sonda do próprio arnês: ele escreve antes de medir,
+para provar que a observação estava de pé.
+
+### Histórico de execução
+
+A primeira execução **reprovou** em cinco passos: a lista não desenhava linha
+nenhuma depois de a view ser expandida. A causa era a falta do `layoutBody` na
+view — uma lista virtualizada só desenha o que cabe na altura que recebe, e a
+altura nunca chegava. Corrigido na view, com execução seguinte aprovada.
+
+Uma segunda execução reprovou em dois passos porque a janela **foi mexida de fora**
+enquanto o teste corria: o passo "nasce recolhida" mediu o clique de quem estava
+olhando. Nada a corrigir no produto; a execução foi repetida sem interferência e
+passou.
+
 
