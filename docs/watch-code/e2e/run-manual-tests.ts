@@ -13,7 +13,7 @@
 // o resultado lido do disco — o ledger é a mesma fonte de verdade da leitura manual.
 
 import { execFileSync, type ChildProcess } from 'node:child_process';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
 import { chromium, type Browser, type Locator, type Page } from 'playwright';
@@ -35,6 +35,7 @@ import {
 	launchApp,
 	ledgerRootOf,
 	logTail,
+	scanWatchCodeLog,
 	scratchPaths,
 	sha1,
 	targetOf,
@@ -240,6 +241,15 @@ const SESSION_EVENT_COUNT = 6;
  * a ordem da lista poder ser conferida contra a ordem do ledger.
  */
 const SESSION_WRITE_GAP_MS = 400;
+
+/** Pasta que nasce sozinha no T-0011, e o arquivo que nasce dentro dela depois. */
+const FOLDER_ONLY = 'src/pacote';
+const FOLDER_FILE = 'src/pacote/regra.ts';
+const FOLDER_FILE_NAME = 'regra.ts';
+const FOLDER_FILE_TOTAL = 12;
+
+/** Espera a alteracao da pasta chegar ao ledger, caso ela venha a chegar. */
+const FOLDER_WAIT_MS = 2000;
 
 /** O dialeto de cada arquivo de teste. */
 type Linguagem = 'ts' | 'js' | 'cs';
@@ -1909,6 +1919,64 @@ const TESTS: readonly IManualTest[] = [
 		t.check('fase 2: o salto para a entrada antiga nao avisa', !oldEntry.notices.some(text => text.includes('no longer in the workspace')), 'avisos=' + JSON.stringify(oldEntry.notices));
 	}
 },
+{
+	id: 'T-0011',
+	title: 'Pasta nao e alteracao',
+	run: async (session, t) => {
+		const page = session.page;
+		const workspace = session.paths.workspace;
+		const sonda = session.ledger.count();
+
+		// A view nasce expandida: o clique aqui so garante que ela esta aberta.
+		if (!await timelineExpanded(page)) {
+			await toggleTimelineView(page);
+		}
+
+		await waitForTimelineRow(page, WARM_UP_FILE);
+
+		// Fase 1: a pasta nasce sozinha, como nasce quando alguem cria a arvore antes
+		// de escrever o arquivo. Nada pode entrar no ledger por causa dela.
+		mkdirSync(targetOf(workspace, FOLDER_ONLY), { recursive: true });
+		await delay(FOLDER_WAIT_MS);
+
+		const semArquivo = session.ledger.events();
+		const daPasta = semArquivo.filter(event => event.fileUri === FOLDER_ONLY);
+
+		t.check('fase 1: a pasta sozinha nao vira evento', daPasta.length === 0, 'eventos da pasta=' + daPasta.length);
+		t.check('fase 1: o ledger nao cresceu com a pasta', semArquivo.length === sonda, 'eventos=' + semArquivo.length + ' sonda=' + sonda);
+
+		// Fase 2: o arquivo dentro da pasta que ja existia vira evento, e so ele.
+		writeWorkspaceFile(workspace, FOLDER_FILE, longContent('ts', false, 1, FOLDER_FILE_TOTAL));
+
+		await waitForTimelineRow(page, FOLDER_FILE_NAME);
+		await session.ledger.waitForCount(sonda + 1, EVENT_TIMEOUT_MS);
+		await waitUntilQuiet(session.ledger);
+
+		const comArquivo = session.ledger.events();
+		const novo = comArquivo[comArquivo.length - 1];
+
+		t.check('fase 2: so o arquivo virou evento', comArquivo.length === sonda + 1 && novo.fileUri === FOLDER_FILE, 'eventos=' + comArquivo.length + ' ultimo=' + JSON.stringify(novo?.fileUri));
+		t.check('fase 2: o arquivo novo tem a faixa do arquivo inteiro', lineRangesOf(novo) === '1-' + FOLDER_FILE_TOTAL, 'faixa=' + JSON.stringify(lineRangesOf(novo)));
+
+		const linhas = await timelineRowNames(page);
+		const nomeDaPasta = FOLDER_ONLY.split('/').pop();
+
+		t.check('fase 2: a pasta nao aparece na linha do tempo', linhas.every(name => name !== nomeDaPasta), 'linhas=' + JSON.stringify(linhas));
+
+		// Fase 3: a medicao aprovada no D2. A remocao de pasta nao e corrigida nesta
+		// tarefa, entao o cenario mede o que acontece e imprime o numero. A conferencia
+		// nunca reprova: nao ha promessa nenhuma sobre o resultado.
+		rmSync(targetOf(workspace, FOLDER_ONLY), { recursive: true });
+		await delay(FOLDER_WAIT_MS);
+		await waitUntilQuiet(session.ledger);
+
+		const depois = session.ledger.events();
+		const pastaRemovida = depois.filter(event => event.fileUri === FOLDER_ONLY).length;
+		const arquivoRemovido = depois.filter(event => event.fileUri === FOLDER_FILE).length;
+
+		t.check('medicao (nao reprova): a pasta removida vira evento?', true, 'pasta=' + pastaRemovida + ' arquivo=' + arquivoRemovido);
+	}
+},
 ];
 
 /** Abre o cenário, roda o teste, fecha o app e devolve se tudo passou. */
@@ -1930,6 +1998,15 @@ async function runTest(test: IManualTest): Promise<boolean> {
 		if (opened) {
 			await closeSession(opened);
 		}
+	}
+
+	// A varredura vem depois de fechar o app: o log em arquivo so esta completo quando
+	// o processo terminou de escrever nele. Ela vale para todo cenario — a conferencia
+	// e a mesma, e nenhuma execucao pode terminar com erro do produto no log.
+	if (opened) {
+		const scan = scanWatchCodeLog(opened.session.paths.userData);
+
+		t.check('log: o produto nao escreveu erro nem aviso', scan.lines > 0 && scan.issues.length === 0, `linhas=${scan.lines} problemas=${JSON.stringify(scan.issues)}`);
 	}
 
 	return t.failuresCount === 0;

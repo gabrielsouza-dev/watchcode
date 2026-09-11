@@ -141,6 +141,7 @@ fonte que a leitura manual consultava.
 | T-0008 | o salto ao local por F5, clique, seta, Enter e duplo clique, com o arquivo removido e a entrada histórica |
 | T-0009 | o salto com a centralização desligada: a vista não se move |
 | T-0010 | a sessão inteira: seis alterações numa sessão, o painel conferido contra o ledger e a travessia inteira pelo teclado |
+| T-0011 | a pasta não é alteração: a pasta sozinha não mexe no ledger, o arquivo dentro dela vira o único evento, e a remoção da pasta é medida |
 
 O Playwright comanda a interface pelo depurador do próprio app: lê o texto, o ícone
 e o rótulo de acessibilidade do indicador, passa o mouse para pegar o tooltip, abre a
@@ -157,6 +158,12 @@ cai para as coordenadas do elemento.
   As conferências filtram por arquivo, então a sonda não entra na conta.
 - **A leitura espera o ledger sossegar.** Quem julga é o estado final, como faria
   quem abrisse os arquivos do perfil no fim — e não o instante logo após a escrita.
+- **O log do produto é varrido no fim de cada teste.** Fechado o app, o executor lê
+  `main.log` e `window1/renderer.log` do perfil e reprova a execução se achar
+  qualquer linha de erro ou aviso com o prefixo `[watchCode]`. O prefixo tem de vir
+  logo depois do nível: o aviso `Creation of workbench contribution`
+  `'...watchCode.hiddenViews'` só cita o nome e não conta. A conferência imprime
+  quantas linhas conferiu — verde sem ter lido nada não prova coisa nenhuma.
 
 ### O que fica para trás
 

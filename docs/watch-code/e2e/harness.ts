@@ -337,6 +337,56 @@ export function logTail(userDataDir: string, lines = 30): string {
 	return parts.join('\n');
 }
 
+/** Linha de erro ou aviso que o próprio produto escreveu no log. */
+const WATCH_CODE_ISSUE = /\[(?:error|warning)\] \[watchCode\]/;
+
+/** Resultado da varredura do log de uma execução. */
+export interface ILogScan {
+	/** Quantas linhas foram conferidas. Zero significa que o log não foi lido. */
+	readonly lines: number;
+	/** Linhas de erro ou aviso escritas pelo produto. */
+	readonly issues: readonly string[];
+}
+
+/**
+ * Procura erro ou aviso do produto no log do perfil.
+ *
+ * O prefixo `[watchCode]` tem de vir logo depois do nível: o aviso
+ * `Creation of workbench contribution '...watchCode.hiddenViews'` aparece em toda
+ * execução e apenas cita o nome, e não pode ser confundido com erro do produto.
+ */
+export function scanWatchCodeLog(userDataDir: string): ILogScan {
+	const logDir = newestLogDir(userDataDir);
+	const issues: string[] = [];
+	let lines = 0;
+
+	if (!logDir) {
+		return { lines, issues };
+	}
+
+	for (const name of ['main.log', join('window1', 'renderer.log')]) {
+		const file = join(logDir, name);
+
+		if (!existsSync(file)) {
+			continue;
+		}
+
+		for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+			if (!line.trim()) {
+				continue;
+			}
+
+			lines++;
+
+			if (WATCH_CODE_ISSUE.test(line)) {
+				issues.push(`${name}: ${line.trim()}`);
+			}
+		}
+	}
+
+	return { lines, issues };
+}
+
 /** Últimas linhas da saída do próprio app, quando a execução aborta. */
 export function appOutputTail(outputLog: string, lines = 30): string {
 	if (!existsSync(outputLog)) {
