@@ -14,23 +14,36 @@ import { IListAccessibilityProvider } from '../../../../base/browser/ui/list/lis
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { joinPath } from '../../../../base/common/resources.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
+import { URI } from '../../../../base/common/uri.js';
+import { getCodeEditor } from '../../../../editor/browser/editorBrowser.js';
+import { Selection } from '../../../../editor/common/core/selection.js';
+import { ScrollType } from '../../../../editor/common/editorCommon.js';
 import { localize } from '../../../../nls.js';
-import { ChangeEvent, ChangeEventAttribution } from '../../../../platform/changeLedger/common/changeEvent.js';
+import { ChangeEvent, ChangeEventAttribution, ChangeLineRange } from '../../../../platform/changeLedger/common/changeEvent.js';
 import { ITimelineService } from '../../../../platform/changeLedger/common/timelineService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKey, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
+import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { WorkbenchList } from '../../../../platform/list/browser/listService.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ViewPane, IViewPaneOptions } from '../../../browser/parts/views/viewPane.js';
+import { IEditorControl } from '../../../common/editor.js';
 import { IViewDescriptorService } from '../../../common/views.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { planReveal, RevealMissReason } from '../common/changeReveal.js';
 import { NavigationDirection, stepActiveId } from '../common/timelineNavigation.js';
 import { buildTimelineRows, TimelineRow } from '../common/timelineRows.js';
+import { CENTER_ON_REVEAL_SETTING } from './timelineConfiguration.contribution.js';
 
 /** Altura de cada linha: duas faixas de texto. */
 const TIMELINE_ROW_HEIGHT = 44;
@@ -192,6 +205,10 @@ export class WatchCodeTimelineView extends ViewPane {
 		@IOpenerService openerService: IOpenerService,
 		@IThemeService themeService: IThemeService,
 		@IHoverService hoverService: IHoverService,
+		@IEditorService private readonly editorService: IEditorService,
+		@IFileService private readonly fileService: IFileService,
+		@INotificationService private readonly notificationService: INotificationService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@ITimelineService private readonly timelineService: ITimelineService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
@@ -222,11 +239,15 @@ export class WatchCodeTimelineView extends ViewPane {
 				accessibilityProvider: new TimelineAccessibilityProvider(),
 				// Um evento ativo por vez: com selecao multipla o conceito se perde.
 				multipleSelectionSupport: false,
+				// Sem isto as setas andam com o foco e deixam a selecao para tras, e o
+				// salto nao acontece: quem navega pela lista e o teclado.
+				selectionNavigation: true,
 				overrideStyles: this.getLocationBasedColors().listOverrideStyles
 			}
 		) as WorkbenchList<TimelineRow>);
 
 		this._register(this.list.onDidChangeSelection(event => this.onDidSelect(event.elements[0])));
+		this._register(this.list.onDidOpen(event => this.onDidOpen(event.element, event.editorOptions)));
 
 		this.message = append(body, $('.watch-code-timeline-message'));
 		this.messageText = append(this.message, $('span'));
@@ -337,9 +358,7 @@ export class WatchCodeTimelineView extends ViewPane {
 			return;
 		}
 
-		this.activeId = next;
-		this.syncSelection();
-		this._onDidChangeActive.fire(this.events.get(next));
+		this.setActiveEvent(next);
 	}
 
 	/** O clique e as setas da lista tambem definem o evento ativo. */
@@ -348,8 +367,140 @@ export class WatchCodeTimelineView extends ViewPane {
 			return;
 		}
 
-		this.activeId = row.id;
-		this._onDidChangeActive.fire(this.events.get(row.id));
+		this.setActiveEvent(row.id);
+	}
+
+	/**
+	 * O Enter e o duplo clique na lista.
+	 *
+	 * Numa linha que ja e o evento ativo a selecao nao muda, e sem este caminho o
+	 * Enter nao faria nada. As opcoes vem do proprio navegador da lista: teclado e
+	 * clique unico abrem em pre-visualizacao sem roubar o foco; o duplo clique fixa
+	 * a aba e leva o foco.
+	 */
+	private onDidOpen(row: TimelineRow | undefined, editorOptions: IEditorOptions): void {
+		if (row === undefined) {
+			return;
+		}
+
+		if (row.id === this.activeId) {
+			void this.reveal(this.events.get(row.id), editorOptions);
+
+			return;
+		}
+
+		this.setActiveEvent(row.id, editorOptions);
+	}
+
+	/**
+	 * Grava o evento ativo, acompanha a selecao, avisa quem observa e salta.
+	 *
+	 * Ponto unico das entradas: o passo da navegacao, o clique, as setas e o Enter.
+	 */
+	private setActiveEvent(id: string, editorOptions?: IEditorOptions): void {
+		this.activeId = id;
+		this.syncSelection();
+		this._onDidChangeActive.fire(this.events.get(id));
+
+		void this.reveal(this.events.get(id), editorOptions);
+	}
+
+	/**
+	 * Abre o arquivo do evento e revela as linhas alteradas.
+	 *
+	 * A abertura e uma promessa, e a lista nao espera por ela. Se o evento ativo
+	 * mudar enquanto o disco responde — um F5 em rajada —, esta abertura perde a vez
+	 * para a mais recente.
+	 */
+	private async reveal(event: ChangeEvent | undefined, editorOptions?: IEditorOptions): Promise<void> {
+		if (!event) {
+			return;
+		}
+
+		// Sem opcoes vindas do gatilho, valem as do produto: pre-visualizacao e foco
+		// onde estava. Ausente nao e o mesmo que falso: sem isto o editor rouba o foco.
+		const aberturas = editorOptions ?? { preserveFocus: true, pinned: false };
+
+		const resource = this.resolveResource(event.fileUri);
+		const plan = planReveal(event, await this.fileService.exists(resource));
+
+		if (event.id !== this.activeId) {
+			return;
+		}
+
+		if (plan.kind === 'missing') {
+			this.warnMissing(plan.because);
+
+			return;
+		}
+
+		const pane = await this.editorService.openEditor({
+			resource,
+			options: {
+				...aberturas,
+				revealIfOpened: true,
+				ignoreError: true
+			}
+		});
+
+		this.revealRange(pane?.getControl(), plan.range);
+	}
+
+	/**
+	 * Poe o cursor na faixa alterada e a deixa visivel.
+	 *
+	 * A posicao e aplicada no editor, e nao pedida por opcao de abertura: num
+	 * arquivo que ja estava aberto o VS Code so reaplica as opcoes, e a rolagem que
+	 * vem delas e suave — que nao anda quando a janela nao esta desenhando quadros.
+	 * Com a posicao na mao, o salto e o mesmo nos dois casos.
+	 *
+	 * A faixa e limitada ao que o arquivo tem hoje: uma entrada historica pode
+	 * apontar para linhas que ja nao existem.
+	 */
+	private revealRange(control: IEditorControl | undefined, range: ChangeLineRange | undefined): void {
+		if (!range) {
+			return;
+		}
+
+		const editor = getCodeEditor(control);
+		const model = editor?.getModel();
+
+		if (!editor || !model) {
+			return;
+		}
+
+		const ultima = Math.min(range[1], model.getLineCount());
+		const primeira = Math.min(range[0], ultima);
+		const selection = new Selection(primeira, 1, ultima, model.getLineMaxColumn(ultima));
+
+		editor.setSelection(selection);
+
+		if (this.centerOnReveal) {
+			editor.revealRangeInCenter(selection, ScrollType.Immediate);
+		} else {
+			editor.revealRangeInCenterIfOutsideViewport(selection, ScrollType.Immediate);
+		}
+	}
+
+	/** A decisao D4: centralizar sempre, ou so rolar quando as linhas estao fora da vista. */
+	private get centerOnReveal(): boolean {
+		return this.configurationService.getValue<boolean>(CENTER_ON_REVEAL_SETTING) ?? true;
+	}
+
+	/** Resolve o caminho relativo do evento, com a mesma regra que a captura usa. */
+	private resolveResource(fileUri: string): URI {
+		const folder = this.workspaceContextService.getWorkspace().folders[0]?.uri;
+
+		return folder ? joinPath(folder, fileUri) : URI.file(fileUri);
+	}
+
+	/** Diz que nao ha o que abrir, sem abrir editor nenhum. */
+	private warnMissing(reason: RevealMissReason): void {
+		const message = reason === 'removed'
+			? localize('watchCode.timeline.fileRemoved', "This change removed the file. Nothing to open.")
+			: localize('watchCode.timeline.fileMissing', "The file of this change is no longer in the workspace.");
+
+		this.notificationService.info(message);
 	}
 
 	/** Poe a selecao da lista no evento ativo, sem que a lista responda de volta. */

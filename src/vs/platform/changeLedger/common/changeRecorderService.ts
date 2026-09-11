@@ -13,6 +13,7 @@ import { createDecorator } from '../../instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../workspace/common/workspace.js';
 import { BaselineProvider, ReadFromHead } from './baseline.js';
 import { ChangeEvent, ChangeEventAttribution } from './changeEvent.js';
+import { changedLineRange } from './changedLines.js';
 import { IChangeLedgerService } from './changeLedgerService.js';
 import { createLedgerStorageLayout, ILedgerStorageLayout } from './ledgerStorage.js';
 import { ShadowStore } from './shadowStore.js';
@@ -153,6 +154,12 @@ export class ChangeRecorderService implements IChangeRecorderService {
 			await this.ledger.recordSnapshot(baseline.content);
 		}
 
+		// A faixa e medida aqui, com os dois conteudos na mao: o salto e a linha do
+		// tempo leem o evento depois, sem voltar aos snapshots. Sem "antes" nao ha o
+		// que comparar — o evento e parcial e fica sem faixa —, a nao ser que o
+		// arquivo seja novo: ai o "antes" e o vazio, e o arquivo inteiro mudou.
+		const faixa = baseline.content || change.kind === 'added' ? changedLineRange(baseline.content, content) : undefined;
+
 		const { event } = await this.ledger.record({
 			id: generateUuid(),
 			sessionId: change.sessionId,
@@ -162,6 +169,7 @@ export class ChangeRecorderService implements IChangeRecorderService {
 			// Sem baseline o evento nasce parcial: o "antes" é desconhecido.
 			beforeHash: baseline.contentHash,
 			afterHash,
+			linesChanged: faixa ? [faixa] : undefined,
 			timestamp: change.timestamp,
 			status: 'current'
 		});

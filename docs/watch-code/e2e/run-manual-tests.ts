@@ -174,7 +174,74 @@ interface IManualTest {
 }
 
 
-/** Seletor do cabeçalho da view da timeline, dentro do Explorer. */
+/**
+ * Arquivos de T-0008 e T-0009, e a configuracao que o segundo prepara.
+ *
+ * Codigo de verdade, em tres linguagens: o produto observa o disco e salta para o
+ * arquivo, sem saber nada da linguagem — o .cs prova isso.
+ */
+const TARGET_FILE = 'alvo.ts';
+const HISTORY_FILE = 'historico.js';
+const REMOVED_FILE = 'apagado.cs';
+const SETTINGS_FILE = '.vscode/settings.json';
+const CENTER_ON_REVEAL_OFF = '{\n\t"watchCode.timeline.centerOnReveal": false\n}\n';
+
+/** Linha alterada nos arquivos longos, e o tamanho deles: longe do topo e do fim. */
+const TARGET_LINE = 100;
+const LONG_FILE_LINES = 200;
+
+/**
+ * Passo do arrasto da barra de rolagem, em pixels.
+ *
+ * O cursor do arrasto anda muitas linhas por pixel: e o que faz a vista sair do
+ * lugar sem tirar a linha alterada da area visivel.
+ */
+const SCROLL_STEP_PX = 20;
+
+/** O dialeto de cada arquivo de teste. */
+type Linguagem = 'ts' | 'js' | 'cs';
+
+/** 200 linhas de codigo, com a linha 100 marcada como alterada. */
+function longContent(linguagem: Linguagem, alterada: boolean): string {
+	const linhas: string[] = [];
+
+	for (let numero = 1; numero <= LONG_FILE_LINES; numero++) {
+		const declaracao = statementFor(linguagem, numero);
+
+		linhas.push(numero === TARGET_LINE && alterada ? declaracao + ' // alterado pelo agente' : declaracao);
+	}
+
+	return linhas.join('\n') + '\n';
+}
+
+/** Cinco linhas: a faixa antiga ja nao existe neste arquivo. */
+function shortContent(linguagem: Linguagem): string {
+	const linhas: string[] = [];
+
+	for (let numero = 1; numero <= 5; numero++) {
+		linhas.push(statementFor(linguagem, numero));
+	}
+
+	return linhas.join('\n') + '\n';
+}
+
+/** Uma declaracao valida por linha, no dialeto da linguagem. */
+function statementFor(linguagem: Linguagem, numero: number): string {
+	if (linguagem === 'ts') {
+		return 'export const valor' + numero + ': number = ' + numero + ';';
+	}
+
+	if (linguagem === 'js') {
+		return 'const valor' + numero + ' = ' + numero + ';';
+	}
+
+	return 'private static readonly int Valor' + numero + ' = ' + numero + ';';
+}
+
+/** Um arquivo pequeno de C#, para o caso do arquivo apagado. */
+const CS_CONTENT = 'namespace WatchCode {\n\tpublic static class Apagado {\n\t}\n}\n';
+
+/** Seletor do cabecalho da view da timeline, dentro do Explorer. */
 const TIMELINE_HEADER_SELECTOR = '.pane-header:has-text("Timeline")';
 
 /** Texto do estado vazio, copiado da view. */
@@ -472,6 +539,128 @@ async function gotoPosition(page: Page, line: number, column: number): Promise<v
 	await delay(800);
 }
 
+/** Quantas abas a janela mantem abertas. */
+async function tabCount(page: Page): Promise<number> {
+	return await page.locator('.tabs-container .tab').count();
+}
+
+/**
+ * Se a aba ativa esta fixada.
+ *
+ * O VS Code marca a aba de pre-visualizacao pelo rotulo em italico: fixada e a
+ * que perdeu o italico.
+ */
+async function activeTabPinned(page: Page): Promise<boolean> {
+	const aba = page.locator('.tabs-container .tab.active').first();
+
+	if (await aba.count() === 0) {
+		return false;
+	}
+
+	return await aba.locator('.monaco-icon-label.italic').count() === 0;
+}
+
+/**
+ * Posicao vertical do cursor da barra de rolagem do editor ativo.
+ *
+ * E o que diz se a vista se mexeu: os numeros de linha desenhados na margem so
+ * mudam quando a janela desenha um quadro novo, e a janela do arnes nao desenha
+ * quadros o tempo todo — ja a posicao do cursor da barra acompanha a rolagem na
+ * hora.
+ */
+async function editorScrollTop(page: Page): Promise<number> {
+	const barra = page.locator('.editor-group-container.active .monaco-editor .monaco-scrollable-element > .scrollbar.vertical > .slider').first().first();
+
+	if (await barra.count() === 0) {
+		return -1;
+	}
+
+	const caixa = await barra.boundingBox();
+
+	return caixa ? Math.round(caixa.y) : -1;
+}
+
+/** Linhas desenhadas na margem do editor ativo, em ordem. */
+async function visibleLines(page: Page): Promise<readonly number[]> {
+	const numeros = await page.locator('.editor-group-container.active .monaco-editor .margin-view-overlays .line-numbers').allTextContents();
+
+	return numeros.map(texto => Number(texto.trim())).filter(numero => !Number.isNaN(numero));
+}
+
+/**
+ * Rola a vista do editor arrastando a barra de rolagem.
+ *
+ * A roda do mouse nao se mostrou confiavel aqui; o arrasto da barra e o mesmo
+ * gesto do usuario e mexe na vista sem tocar no cursor — que e o que a
+ * conferencia da centralizacao precisa medir.
+ */
+async function scrollEditor(page: Page, pixels: number): Promise<void> {
+	const barra = page.locator('.editor-group-container.active .monaco-editor .monaco-scrollable-element > .scrollbar.vertical > .slider').first();
+
+	if (await barra.count() === 0) {
+		return;
+	}
+
+	const editor = page.locator('.editor-group-container.active .monaco-editor').first();
+	const area = await editor.boundingBox();
+
+	// O editor so mostra a barra quando o mouse esta sobre ele: sem esta passada o
+	// arrasto pega um cursor invisivel e nao rola nada.
+	if (area) {
+		await page.mouse.move(area.x + area.width / 3, area.y + area.height / 2);
+		await delay(400);
+	}
+
+	const caixa = await barra.boundingBox();
+
+	if (!caixa) {
+		return;
+	}
+
+	const x = caixa.x + caixa.width / 2;
+	const y = caixa.y + caixa.height / 2;
+
+	await page.mouse.move(x, y);
+	await page.mouse.down();
+	await page.mouse.move(x, y + pixels, { steps: 5 });
+	await page.mouse.up();
+	await delay(600);
+}
+
+/** Texto dos avisos que a janela esta mostrando agora. */
+async function notificationTexts(page: Page): Promise<readonly string[]> {
+	const mensagens = page.locator('.notifications-toasts .notification-list-item-message');
+
+	if (await mensagens.count() === 0) {
+		return [];
+	}
+
+	return (await mensagens.allTextContents()).map(collapse);
+}
+
+/** Espera um aviso novo, que nao estava na lista medida antes do passo. */
+async function waitForNewNotification(page: Page, antes: readonly string[], timeoutMs = 10000): Promise<readonly string[]> {
+	const deadline = Date.now() + timeoutMs;
+
+	while (Date.now() < deadline) {
+		const novas = (await notificationTexts(page)).filter(texto => !antes.includes(texto));
+
+		if (novas.length > 0) {
+			return novas;
+		}
+
+		await delay(300);
+	}
+
+	return [];
+}
+
+/** Clica na linha da lista pela posicao. */
+async function clickTimelineRow(page: Page, index: number): Promise<void> {
+	await page.locator('.watch-code-timeline .monaco-list-row').nth(index).click();
+	await delay(1500);
+}
+
 /** Texto do item de posicao da barra de status, no formato "Ln 2, Col 17". */
 async function editorPosition(page: Page): Promise<string> {
 	const item = page.locator('[id="status.editor.selection"]').first();
@@ -597,7 +786,20 @@ function writeOutside(session: ISession, content: string): void {
 
 /** Monta o repositório git de T-0001, com o arquivo já commitado. */
 function prepareGitWorkspace(workspace: string): void {
-	writeWorkspaceFile(workspace, NOTE_FILE, HEAD_CONTENT);
+	commitWorkspace(workspace, [[NOTE_FILE, HEAD_CONTENT]]);
+}
+
+/**
+ * Escreve os arquivos, cria o repositório e commita tudo.
+ *
+ * O commit é o "antes" da primeira alteração de cada arquivo: sem ele o evento
+ * nasce parcial e não tem faixa de linhas para o salto revelar.
+ */
+function commitWorkspace(workspace: string, arquivos: readonly (readonly [string, string])[]): void {
+	for (const [caminho, conteudo] of arquivos) {
+		writeWorkspaceFile(workspace, caminho, conteudo);
+	}
+
 	// Sem conversão de fim de linha: o que o git devolve no HEAD é o que foi escrito.
 	writeWorkspaceFile(workspace, '.gitattributes', '* -text\n');
 
@@ -1190,6 +1392,229 @@ const TESTS: readonly IManualTest[] = [
 
 		await page.keyboard.press('Escape');
 		await delay(300);
+	}
+},
+{
+	id: 'T-0008',
+	title: 'Salto ao local da alteracao',
+	prepare: workspace => commitWorkspace(workspace, [
+		[TARGET_FILE, longContent('ts', false)],
+		[HISTORY_FILE, longContent('js', false)],
+		[REMOVED_FILE, CS_CONTENT]
+	]),
+	run: async (session, t) => {
+		const page = session.page;
+		const workspace = session.paths.workspace;
+
+		// Passo 1: a lista comeca com a sonda de aquecimento, e recebe duas alteracoes.
+		await waitForTimelineRow(page, WARM_UP_FILE);
+
+		writeWorkspaceFile(workspace, TARGET_FILE, longContent('ts', true));
+		await session.ledger.waitForEvents(TARGET_FILE, 1, EVENT_TIMEOUT_MS);
+		await waitForTimelineRow(page, TARGET_FILE);
+
+		writeWorkspaceFile(workspace, HISTORY_FILE, longContent('js', true));
+		await session.ledger.waitForEvents(HISTORY_FILE, 1, EVENT_TIMEOUT_MS);
+		await waitForTimelineRow(page, HISTORY_FILE);
+		await waitUntilQuiet(session.ledger);
+
+		const eventosDoAlvo = session.ledger.eventsOf(TARGET_FILE).length;
+
+		t.check('passo 1: o ledger registrou a alteracao', eventosDoAlvo === 1, 'eventos do alvo=' + eventosDoAlvo + ' linhas na tela=' + JSON.stringify(await timelineRowNames(page)));
+
+		// Passo 2: o F5 com o foco no editor abre a view e salta para a alteracao mais antiga.
+		await page.keyboard.press('F5');
+		await delay(2000);
+
+		const primeiroDestino = await activeEditorName(page);
+
+		t.check('passo 2: o F5 leva ao arquivo da alteracao mais antiga', primeiroDestino === WARM_UP_FILE, 'editor ativo=' + JSON.stringify(primeiroDestino));
+
+		// Passo 3: o F5 seguinte salta para a alteracao do alvo, na linha alterada.
+		await page.keyboard.press('F5');
+		await delay(2000);
+
+		const nomeDoAlvo = await activeEditorName(page);
+		const posicao = await editorPosition(page);
+		const visiveis = await visibleLines(page);
+
+		t.check('passo 3: o editor vai para o arquivo da alteracao', nomeDoAlvo === TARGET_FILE, 'editor ativo=' + JSON.stringify(nomeDoAlvo));
+		t.check('passo 3: o cursor cai na linha alterada', posicao.startsWith('Ln ' + TARGET_LINE + ','), 'posicao=' + JSON.stringify(posicao));
+		t.check('passo 3: a linha alterada fica visivel', visiveis.includes(TARGET_LINE), 'linhas visiveis=' + visiveis[0] + '..' + visiveis[visiveis.length - 1]);
+
+		// Passo 4: percorrer reusa uma aba so, de pre-visualizacao.
+		const abas = await tabCount(page);
+		const fixada = await activeTabPinned(page);
+
+		t.check('passo 4: uma aba so, de pre-visualizacao', abas === 1 && !fixada, 'abas=' + abas + ' fixada=' + fixada);
+
+		// Passo 5: com a tela rolada, o clique na linha centraliza a alteracao de novo.
+		const linhaDoAlvo = await waitForTimelineRow(page, TARGET_FILE);
+
+		// O cursor sai da linha alterada pelo proprio editor: sem isso, "o cursor
+		// voltou para a linha" nao provaria nada.
+		await gotoPosition(page, 150, 1);
+
+		const rolagemAntes = await editorScrollTop(page);
+
+		await scrollEditor(page, SCROLL_STEP_PX);
+
+		const rolagemDepois = await editorScrollTop(page);
+
+		await clickTimelineRow(page, linhaDoAlvo);
+
+		const rolagemDoSalto = await editorScrollTop(page);
+		const posicaoDepoisDoClique = await editorPosition(page);
+
+		t.check('passo 5: a barra rolou a vista antes do clique', rolagemDepois > rolagemAntes, 'cursor da barra ' + rolagemAntes + ' -> ' + rolagemDepois);
+		t.check('passo 5: o clique traz a alteracao de volta para o centro', rolagemDoSalto < rolagemDepois, 'cursor da barra ' + rolagemDepois + ' -> ' + rolagemDoSalto);
+		t.check('passo 5: o cursor volta para a linha alterada', posicaoDepoisDoClique.startsWith('Ln ' + TARGET_LINE + ','), 'posicao=' + JSON.stringify(posicaoDepoisDoClique));
+
+		// Passo 6: as setas andam na lista e o foco fica nela.
+		await page.keyboard.press('ArrowDown');
+		await delay(2000);
+
+		const depoisDaSeta = await activeEditorName(page);
+		const focoNaLista = await page.evaluate('!!document.activeElement && !!document.activeElement.closest(".watch-code-timeline")');
+		const selecionada = await timelineSelectedNames(page);
+
+		t.check('passo 6: a seta troca o arquivo aberto', depoisDaSeta === HISTORY_FILE, 'editor ativo=' + JSON.stringify(depoisDaSeta) + ' selecionadas=' + JSON.stringify(selecionada));
+		t.check('passo 6: o foco continua na lista', focoNaLista, 'foco na lista=' + focoNaLista);
+
+		// Passo 7: o Enter numa linha que ja e o evento ativo salta de novo.
+		const rolagemAntesDoEnter = await editorScrollTop(page);
+
+		await scrollEditor(page, SCROLL_STEP_PX);
+
+		const rolagemDoEnter = await editorScrollTop(page);
+
+		await page.keyboard.press('Enter');
+		await delay(2000);
+
+		const rolagemDepoisDoEnter = await editorScrollTop(page);
+		const posicaoDepoisDoEnter = await editorPosition(page);
+
+		t.check('passo 7: o Enter salta de novo, mesmo na linha ja ativa', posicaoDepoisDoEnter.startsWith('Ln ' + TARGET_LINE + ','), 'posicao=' + JSON.stringify(posicaoDepoisDoEnter));
+		t.check('passo 7: a barra rolou a vista antes do Enter', rolagemDoEnter > rolagemAntesDoEnter, 'cursor da barra ' + rolagemAntesDoEnter + ' -> ' + rolagemDoEnter);
+		t.check('passo 7: a centralizacao acontece outra vez', rolagemDepoisDoEnter < rolagemDoEnter, 'cursor da barra ' + rolagemDoEnter + ' -> ' + rolagemDepoisDoEnter);
+
+		// Passo 8: o duplo clique fixa a aba, e o salto seguinte abre outra.
+		await page.locator('.watch-code-timeline .monaco-list-row').nth(linhaDoAlvo).dblclick();
+		await delay(2000);
+
+		const fixadaDepoisDoDuploClique = await activeTabPinned(page);
+
+		t.check('passo 8: o duplo clique fixa a aba', fixadaDepoisDoDuploClique, 'abas=' + await tabCount(page) + ' fixada=' + fixadaDepoisDoDuploClique);
+
+		await page.keyboard.press('F5');
+		await delay(2000);
+
+		const abasNoFim = await tabCount(page);
+
+		t.check('passo 8: a aba fixada nao e reusada pelo salto seguinte', abasNoFim === 2, 'abas=' + abasNoFim);
+
+		// O arquivo que sera apagado: uma alteracao e, depois, a remocao.
+		writeWorkspaceFile(workspace, REMOVED_FILE, 'namespace WatchCode {\n\tpublic static class Apagado {\n\t\t// reescrito pelo agente\n\t}\n}\n');
+		await session.ledger.waitForEvents(REMOVED_FILE, 1, EVENT_TIMEOUT_MS);
+
+		rmSync(join(workspace, REMOVED_FILE));
+		await session.ledger.waitForEvents(REMOVED_FILE, 2, EVENT_TIMEOUT_MS);
+
+		// A segunda alteracao do historico rebaixa a primeira a historica.
+		writeWorkspaceFile(workspace, HISTORY_FILE, shortContent('js'));
+		await session.ledger.waitForEvents(HISTORY_FILE, 2, EVENT_TIMEOUT_MS);
+		await waitUntilQuiet(session.ledger);
+
+		// Passo 9 e 10: o passeio pela lista.
+		//
+		// A lista e virtualizada e a view e baixa: o que existe na tela sao poucas
+		// linhas de cada vez. Andar com a seta traz cada linha para a area visivel —
+		// e e o gesto do usuario para percorrer a sessao.
+		await clickTimelineRow(page, 0);
+
+		const nomesVisitados: string[] = [];
+		const editoresVisitados: string[] = [];
+		const avisosVistos: string[] = [];
+		let posicaoDaHistorica = '';
+
+		// Sao mais linhas do que a view desenha de uma vez, e duas delas tem o mesmo
+		// nome de arquivo: o passeio anda um numero fixo de linhas, em vez de parar
+		// quando o nome se repete.
+		for (let passo = 0; passo < 8; passo++) {
+			const linha = (await timelineSelectedNames(page))[0] ?? '';
+
+			if (linha.length === 0) {
+				break;
+			}
+
+			nomesVisitados.push(linha);
+			editoresVisitados.push(await activeEditorName(page));
+
+			if (linha === HISTORY_FILE && posicaoDaHistorica.length === 0) {
+				posicaoDaHistorica = await editorPosition(page);
+			}
+
+			await page.keyboard.press('ArrowDown');
+			await delay(1500);
+
+			avisosVistos.push(...await waitForNewNotification(page, avisosVistos, 1500));
+		}
+
+		t.check('passo 9: o passeio visitou as alteracoes da sessao', nomesVisitados.length >= 5, 'linhas=' + JSON.stringify(nomesVisitados));
+		t.check('passo 9: o arquivo que sumiu avisa, em vez de abrir', avisosVistos.some(texto => texto.includes('no longer in the workspace')), 'avisos=' + JSON.stringify(avisosVistos));
+		t.check('passo 9: a remocao registrada tem o proprio aviso', avisosVistos.some(texto => texto.includes('removed the file')), 'avisos=' + JSON.stringify(avisosVistos));
+		t.check('passo 9: nenhum editor do arquivo apagado e aberto', !editoresVisitados.includes(REMOVED_FILE), 'editores=' + JSON.stringify(editoresVisitados));
+		t.check('passo 10: a entrada historica para na ultima linha do arquivo', posicaoDaHistorica.startsWith('Ln 6,'), 'posicao=' + JSON.stringify(posicaoDaHistorica));
+	}
+},
+{
+	id: 'T-0009',
+	title: 'Salto sem centralizar a alteracao',
+	prepare: workspace => {
+		commitWorkspace(workspace, [[TARGET_FILE, longContent('ts', false)]]);
+
+		// Depois do commit: a configuracao nao entra no "antes" de nenhum arquivo.
+		writeWorkspaceFile(workspace, SETTINGS_FILE, CENTER_ON_REVEAL_OFF);
+	},
+	run: async (session, t) => {
+		const page = session.page;
+
+		await waitForTimelineRow(page, WARM_UP_FILE);
+
+		writeWorkspaceFile(session.paths.workspace, TARGET_FILE, longContent('ts', true));
+		await session.ledger.waitForEvents(TARGET_FILE, 1, EVENT_TIMEOUT_MS);
+		await waitForTimelineRow(page, TARGET_FILE);
+		await waitUntilQuiet(session.ledger);
+
+		// Passo 1: com a centralizacao desligada o salto continua indo para a linha alterada.
+		await page.keyboard.press('F5');
+		await delay(1500);
+		await page.keyboard.press('F5');
+		await delay(2000);
+
+		const nomeDoAlvo = await activeEditorName(page);
+		const posicao = await editorPosition(page);
+
+		t.check('passo 1: o salto continua com a configuracao desligada', nomeDoAlvo === TARGET_FILE && posicao.startsWith('Ln ' + TARGET_LINE + ','), 'editor ativo=' + JSON.stringify(nomeDoAlvo) + ' posicao=' + JSON.stringify(posicao));
+
+		// Passo 2: com a alteracao ja visivel, o salto nao mexe na rolagem.
+		const linhaDoAlvo = await waitForTimelineRow(page, TARGET_FILE);
+
+		await clickTimelineRow(page, linhaDoAlvo);
+
+		const rolagemAntes = await editorScrollTop(page);
+
+		await scrollEditor(page, SCROLL_STEP_PX);
+
+		const rolagemDepois = await editorScrollTop(page);
+
+		await page.keyboard.press('Enter');
+		await delay(2000);
+
+		const rolagemDoSalto = await editorScrollTop(page);
+
+		t.check('passo 2: a barra rolou a vista antes do Enter', rolagemDepois > rolagemAntes, 'cursor da barra ' + rolagemAntes + ' -> ' + rolagemDepois);
+		t.check('passo 2: o salto nao rola a tela', rolagemDoSalto === rolagemDepois, 'cursor da barra ' + rolagemDepois + ' -> ' + rolagemDoSalto);
 	}
 },
 ];
