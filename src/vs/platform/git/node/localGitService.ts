@@ -9,7 +9,7 @@ import { CancellationError } from '../../../base/common/errors.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { localize } from '../../../nls.js';
 import { ILogService } from '../../log/common/log.js';
-import { IGitPullOptions, ILocalGitService } from '../common/localGitService.js';
+import { HeadObjectType, IGitPullOptions, ILocalGitService } from '../common/localGitService.js';
 
 export class LocalGitService implements ILocalGitService {
 	declare readonly _serviceBrand: undefined;
@@ -163,10 +163,24 @@ export class LocalGitService implements ILocalGitService {
 
 	async show(repoPath: string, filePath: string): Promise<string | undefined> {
 		try {
-			return await this._exec(generateUuid(), ['show', `HEAD:${filePath}`], repoPath);
+			// `cat-file blob`, e nao `show`: para um caminho de pasta o `show` responde
+			// com a listagem da arvore e codigo 0, e uma pasta nao tem conteudo de
+			// arquivo nenhum. Para arquivo os dois devolvem os mesmos bytes.
+			return await this._exec(generateUuid(), ['cat-file', 'blob', `HEAD:${filePath}`], repoPath);
 		} catch {
 			// Sem versão anterior — arquivo novo, repositório sem commits ou caminho
 			// inválido — a ausência de baseline não é um erro para quem pergunta.
+			return undefined;
+		}
+	}
+
+	async catFileType(repoPath: string, filePath: string): Promise<HeadObjectType | undefined> {
+		try {
+			const type = (await this._exec(generateUuid(), ['cat-file', '-t', `HEAD:${filePath}`], repoPath)).trim();
+
+			return type === 'blob' || type === 'tree' ? type : undefined;
+		} catch {
+			// Caminho que não está no `HEAD` não tem tipo: a resposta é a ausência.
 			return undefined;
 		}
 	}

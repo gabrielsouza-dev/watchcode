@@ -12,6 +12,9 @@ export interface IGitPullOptions {
 	readonly allowHardResetOnDivergence?: boolean;
 }
 
+/** Tipo do objeto de um caminho no `HEAD`, na linguagem do git. */
+export type HeadObjectType = 'blob' | 'tree';
+
 /**
  * Low-level service for executing git commands on the local machine.
  * Used in the shared process where Node.js APIs are available.
@@ -29,9 +32,19 @@ export interface ILocalGitService {
 	 * Conteúdo de um arquivo no `HEAD`, ou `undefined` quando não há versão
 	 * anterior: arquivo novo, repositório sem commits ou caminho fora do repositório.
 	 *
+	 * Um caminho que é pasta não tem conteúdo de arquivo: a resposta é `undefined`.
+	 *
 	 * `repoPath` é um caminho nativo; `filePath` é relativo à raiz, com `/`.
 	 */
 	show(repoPath: string, filePath: string): Promise<string | undefined>;
+	/**
+	 * Tipo do objeto em `HEAD:<filePath>`.
+	 *
+	 * `undefined` quando não há esse caminho no `HEAD` — repositório sem commits,
+	 * arquivo novo, caminho inválido — ou quando o objeto não é arquivo nem pasta.
+	 * Pergunta sem resposta não é erro para quem pergunta.
+	 */
+	catFileType(repoPath: string, filePath: string): Promise<HeadObjectType | undefined>;
 	/**
 	 * Raiz do repositório que contém um caminho, ou `undefined` quando ele não
 	 * está dentro de repositório nenhum.

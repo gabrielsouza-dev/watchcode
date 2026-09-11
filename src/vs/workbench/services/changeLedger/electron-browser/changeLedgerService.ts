@@ -36,6 +36,9 @@ registerSingleton(IWorkspaceWatcherService, WorkspaceWatcherService, Instantiati
  * A resolução não pode morar no argumento estático do `SyncDescriptor`: o
  * serviço de injeção repassa esses argumentos sem executar fábrica nenhuma, e o
  * leitor chegaria sem os serviços — o "antes" cairia para a sombra em silêncio.
+ *
+ * O leitor do tipo do caminho sai do mesmo objeto pelo mesmo motivo: é ele que
+ * responde se o que sumiu do disco era arquivo ou pasta.
  */
 class WorkbenchChangeRecorderService extends ChangeRecorderService {
 
@@ -47,7 +50,9 @@ class WorkbenchChangeRecorderService extends ChangeRecorderService {
 		@ILocalGitService localGitService: ILocalGitService,
 		@ILogService logService: ILogService
 	) {
-		super(ledger, fileService, workspaceContextService, environmentService, new GitHeadReader(localGitService, workspaceContextService, logService).read);
+		const reader = new GitHeadReader(localGitService, workspaceContextService, logService);
+
+		super(ledger, fileService, workspaceContextService, environmentService, reader.read, reader.readKind);
 	}
 }
 

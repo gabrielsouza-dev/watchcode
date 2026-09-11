@@ -8,7 +8,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { ILocalGitService } from '../../../../platform/git/common/localGitService.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { WorkspaceHeadReader } from '../../../../platform/changeLedger/common/changeRecorderService.js';
+import { WorkspaceHeadReader, WorkspacePathKind, WorkspacePathKindReader } from '../../../../platform/changeLedger/common/changeRecorderService.js';
 
 /**
  * Liga o baseline ao git de verdade.
@@ -30,6 +30,9 @@ export class GitHeadReader {
 	/** Leitor pronto para ser injetado no recorder. */
 	readonly read: WorkspaceHeadReader = async fileUri => this.readFromHead(fileUri);
 
+	/** Leitor do tipo do caminho pronto para ser injetado no recorder. */
+	readonly readKind: WorkspacePathKindReader = async fileUri => this.readKindFromHead(fileUri);
+
 	private async readFromHead(fileUri: string): Promise<VSBuffer | undefined> {
 		const rootPath = await this.resolveRootPath();
 
@@ -41,6 +44,28 @@ export class GitHeadReader {
 		const content = await this.localGitService.show(rootPath, filePath);
 
 		return content === undefined ? undefined : VSBuffer.fromString(content);
+	}
+
+	/**
+	 * O tipo do caminho no `HEAD`.
+	 *
+	 * É o que responde quando a pasta já não está no disco: a árvore é pasta, o blob
+	 * é arquivo, e o resto é caminho que o git não conhece.
+	 */
+	private async readKindFromHead(fileUri: string): Promise<WorkspacePathKind> {
+		const rootPath = await this.resolveRootPath();
+
+		if (!rootPath) {
+			return 'unknown';
+		}
+
+		const type = await this.localGitService.catFileType(rootPath, fileUri.replace(/\\/g, '/'));
+
+		if (type === 'tree') {
+			return 'directory';
+		}
+
+		return type === 'blob' ? 'file' : 'unknown';
 	}
 
 	/** Raiz do repositório que contém o workspace, descoberta uma única vez. */
