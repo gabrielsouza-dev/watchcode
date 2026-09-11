@@ -273,10 +273,12 @@ consultado e o "antes" não entrava no store de snapshots. Ambos corrigidos.
 | --- | --- | --- | --- | --- |
 | E2-T1 | Serviço de timeline | Consultas cronológicas, filtro por arquivo, cálculo de `current`/`history`, eventos observáveis | E1-T6 | feito (113 testes no módulo, 15 novos) |
 | E2-T2 | View da timeline | Lista virtualizada na Activity Bar com arquivo, linhas, hora e origem; estados vazio e de erro | E2-T1 | feito (18 testes no módulo, 11 novos; manual T-0005 aprovado. A lista ficou dentro do Explorer, recolhível abaixo da árvore, e não na Activity Bar — decisão D5 do plano, tomada com o usuário) |
-| E2-T3 | Anterior/Próximo | Comandos, keybindings e seleção do evento ativo na lista | E2-T2 | pendente |
+| E2-T3 | Anterior/Próximo | Comandos, keybindings e seleção do evento ativo na lista | E2-T2 | feito (27 testes no módulo, 9 novos; manual T-0006 aprovado com 16 conferências. A tecla é o **F5**, com Shift+F5 para voltar — decidido com o usuário na revisão da fileira de F1 a F12) |
 | E2-T4 | Salto ao local | Abrir o arquivo, revelar e selecionar as linhas; tratar arquivo ausente e entrada `history` | E2-T3 | pendente |
 | E2-T5 | Fechamento da E2 | Percorrer em sequência todas as alterações de uma sessão do agente | E2-T4 | pendente |
 | E2-T6 | Novo e visualizado | Selo por alteração, gravado no próprio evento; o lote é **derivado** — fica visualizado quando todas as suas alterações estiverem | E2-T5 | pendente |
+| E2-T7 | Arquivos alterados no Explorer | Decoração nos arquivos que o agente tocou, pelo `IDecorationsService` — sem tocar no Explorer | E2-T6 | pendente |
+| E2-T8 | Só o que mudou | Esconder no Explorer os arquivos que o agente não tocou, com o atalho **F7**; a view própria é a opção recomendada sobre o gancho no core do Explorer | E2-T7 | pendente |
 
 ### Etapa E3 — Diff, cores e modos
 
@@ -321,8 +323,19 @@ consultado e o "antes" não entrava no store de snapshots. Ambos corrigidos.
 | --- | --- | --- | --- | --- |
 | E7-T1 | Ícone e identidade visual | Ícone do produto (Windows, Linux, macOS) no `product.json`, ícone da view na Activity Bar e do editor | E6-T3 | pendente |
 
+### Etapa E8 — Acabamento
+
+Nasceu da revisão da fileira de F1 a F12, feita com o usuário na E2-T3. A ordem
+dentro da etapa é a desta tabela.
+
+| ID | Tarefa | Entregável | Depende | Status |
+| --- | --- | --- | --- | --- |
+| E8-T1 | Inteligência de código para leitura | `typescript-language-features` de volta, com `typescript.validate.enable: false`, sem completion e sem formatação: ficam **F12** (definição), referências, símbolos e hover. Sem acusar erro — o visualizador não opina | — | pendente |
+| E8-T2 | Atalhos que não são do produto | Descartar as ligações de F2 (renomear), F5/Shift+F5/Ctrl+F5, F9/Shift+F9, F10, Shift+F11, Alt+F9, Alt+F8 e Ctrl+F9: escrever e executar saem da fileira; ler, navegar, comparar e propor ficam | E8-T1 | pendente |
+| E8-T3 | Comandos de apoio da timeline | `newest`/`oldest`, `focus` e `filterByActiveFile` na Paleta e no menu de contexto | E2-T5 | pendente |
+
 ```
-E1 → E2 → E3 → E4 → E5 → E6 → E7
+E1 → E2 → E3 → E4 → E5 → E6 → E7 → E8
 ```
 
 ## 7. Riscos
