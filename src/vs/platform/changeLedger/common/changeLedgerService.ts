@@ -7,12 +7,13 @@
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
+import { URI } from '../../../base/common/uri.js';
 import { IEnvironmentService } from '../../environment/common/environment.js';
 import { IFileService } from '../../files/common/files.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../workspace/common/workspace.js';
 import { ChangeEvent } from './changeEvent.js';
-import { eventResource, fileIndexResource, ILedgerStorageLayout, createLedgerStorageLayout } from './ledgerStorage.js';
+import { eventResource, fileIndexResource, ILedgerStorageLayout, createLedgerStorageLayout, normalizeFilePath } from './ledgerStorage.js';
 import { SnapshotStore, ISnapshotStore } from './snapshotStore.js';
 
 export const IChangeLedgerService = createDecorator<IChangeLedgerService>('changeLedgerService');
@@ -69,6 +70,19 @@ export interface IChangeLedgerService {
 
 	/** Evento de um id, ou `undefined`. */
 	readById(eventId: string): Promise<ChangeEvent | undefined>;
+
+	/**
+	 * Eventos atuais dos arquivos que o ledger conhece **sob** um caminho.
+	 *
+	 * O próprio caminho não entra na resposta: quem pergunta quer saber quem estava
+	 * dentro dele. É o que a remoção de uma pasta precisa para fechar os arquivos
+	 * que ela levou junto — o watcher do core colapsa os `DELETED` dos filhos, e o
+	 * ledger é o único lugar onde a lista ainda existe.
+	 *
+	 * Quem começa com o mesmo texto mas é outra pasta fica de fora: `src/pacote2`
+	 * não está sob `src/pacote`.
+	 */
+	readCurrentUnder(folderUri: string): Promise<readonly ChangeEvent[]>;
 
 	/** Guarda o conteúdo de um arquivo e devolve o hash. */
 	recordSnapshot(content: VSBuffer): Promise<string>;
@@ -170,6 +184,31 @@ export class ChangeLedgerService extends Disposable implements IChangeLedgerServ
 		}
 	}
 
+	async readCurrentUnder(folderUri: string): Promise<readonly ChangeEvent[]> {
+		const target = normalizeFilePath(folderUri);
+		const prefix = target + '/';
+		const events: ChangeEvent[] = [];
+
+		for (const index of await this.readIndexes()) {
+			const fileUri = normalizeFilePath(index.fileUri);
+
+			// O próprio caminho e o vizinho de prefixo ficam de fora: quem pergunta
+			// quer quem estava dentro, e o separador é o que separa a pasta que está
+			// dentro da que só começa com o mesmo texto.
+			if (!fileUri.startsWith(prefix)) {
+				continue;
+			}
+
+			const event = index.currentEventId ? await this.readById(index.currentEventId) : undefined;
+
+			if (event) {
+				events.push(event);
+			}
+		}
+
+		return events.sort(compareEvents);
+	}
+
 	recordSnapshot(content: VSBuffer): Promise<string> {
 		return this.snapshots.put(content);
 	}
@@ -222,8 +261,41 @@ export class ChangeLedgerService extends Disposable implements IChangeLedgerServ
 	}
 
 	private async readIndex(fileUri: string): Promise<IFileIndex | undefined> {
+		return this.parseIndex(fileIndexResource(this.layout, fileUri));
+	}
+
+	/** Todos os índices gravados, ignorando o ilegível. */
+	private async readIndexes(): Promise<IFileIndex[]> {
+		let children;
+
 		try {
-			const content = await this.fileService.readFile(fileIndexResource(this.layout, fileUri));
+			children = await this.fileService.resolve(this.layout.indexDir);
+		} catch {
+			// Sem diretório de índice não há caminho conhecido: é o estado inicial.
+			return [];
+		}
+
+		const indexes: IFileIndex[] = [];
+
+		for (const child of children.children ?? []) {
+			if (child.isDirectory || !child.name.endsWith('.json')) {
+				continue;
+			}
+
+			const index = await this.parseIndex(child.resource);
+
+			if (index) {
+				indexes.push(index);
+			}
+		}
+
+		return indexes;
+	}
+
+	/** Índice de um caminho, ou `undefined` quando ausente ou ilegível. */
+	private async parseIndex(resource: URI): Promise<IFileIndex | undefined> {
+		try {
+			const content = await this.fileService.readFile(resource);
 
 			return JSON.parse(content.value.toString()) as IFileIndex;
 		} catch {

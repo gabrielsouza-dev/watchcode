@@ -87,8 +87,13 @@ export function fileKey(fileUri: string): string {
 	return (hash(normalizeFilePath(fileUri)) >>> 0).toString(16).padStart(8, '0');
 }
 
-/** Normaliza o caminho: separadores uniformes e sem prefixo relativo. */
-function normalizeFilePath(fileUri: string): string {
+/**
+ * Normaliza o caminho: separadores uniformes e sem prefixo relativo.
+ *
+ * É a mesma normalização que dá nome aos arquivos de índice e de sombra, e é
+ * exportada para quem precisa comparar caminhos do workspace com os do ledger.
+ */
+export function normalizeFilePath(fileUri: string): string {
 	let normalized = fileUri.trim().replace(/\\/g, '/');
 
 	while (normalized.startsWith('./')) {

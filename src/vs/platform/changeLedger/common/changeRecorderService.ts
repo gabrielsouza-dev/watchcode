@@ -75,6 +75,11 @@ export interface IChangeRecorderService {
 	 * remoção é gravada como sempre foi — um arquivo não pode ser engolido por
 	 * falta de informação.
 	 *
+	 * A pasta removida leva junto os arquivos que ela continha: o watcher do core
+	 * colapsa os `DELETED` dos filhos quando a pasta é apagada, então o gravador
+	 * fecha, um a um, os arquivos que o ledger conhece sob aquele caminho. A pasta
+	 * não vira evento; os arquivos dela, sim.
+	 *
 	 * Rejeita quando um arquivo que deveria existir não pode ser lido: sem
 	 * conteúdo atual não há "depois", e um evento sem "depois" só representa
 	 * remoção. Por isso uma remoção é gravada sem ler o disco, com o "depois"
@@ -130,7 +135,8 @@ export class ChangeRecorderService implements IChangeRecorderService {
 	 * A remoção não pode ler o disco: quando a pasta some, é daqui que sai a prova
 	 * que a leitura daria. A marca nasce da leitura recusada (a pasta que chega) e
 	 * dos ancestrais de todo arquivo lido, e morre quando um arquivo é lido no
-	 * mesmo caminho.
+	 * mesmo caminho. Quando nem ela nem o git respondem, o ledger ainda pode provar
+	 * que o caminho era pasta: basta ele conhecer arquivo sob ele.
 	 */
 	private readonly folders = new Set<string>();
 
@@ -148,6 +154,17 @@ export class ChangeRecorderService implements IChangeRecorderService {
 	}
 
 	async recordChange(change: IObservedChange): Promise<ChangeEvent | undefined> {
+		return this.enqueue(change, false);
+	}
+
+	/**
+	 * Entra na fila do arquivo e grava a alteração.
+	 *
+	 * `knownFile` diz que o caminho já foi provado arquivo — é o caso dos arquivos
+	 * que uma pasta removida levou junto: eles vêm do ledger, e repetir a pergunta
+	 * de tipo em cada um só custaria consulta.
+	 */
+	private async enqueue(change: IObservedChange, knownFile: boolean): Promise<ChangeEvent | undefined> {
 		const resource = this.resolveResource(change);
 		const key = resource.toString();
 
@@ -155,7 +172,7 @@ export class ChangeRecorderService implements IChangeRecorderService {
 		// leituras assíncronas: sem a fila por arquivo a segunda decidiria antes de a
 		// primeira gravar, e as duas entrariam na linha do tempo.
 		const previous = this.recording.get(key) ?? Promise.resolve();
-		const recording = previous.catch(() => undefined).then(() => this.record(resource, change));
+		const recording = previous.catch(() => undefined).then(() => this.record(resource, change, knownFile));
 
 		this.recording.set(key, recording);
 
@@ -169,7 +186,7 @@ export class ChangeRecorderService implements IChangeRecorderService {
 	}
 
 	/** Grava a alteração, se ela for diferente do último evento do mesmo arquivo. */
-	private async record(resource: URI, change: IObservedChange): Promise<ChangeEvent | undefined> {
+	private async record(resource: URI, change: IObservedChange, knownFile: boolean): Promise<ChangeEvent | undefined> {
 		const key = resource.toString();
 		// Numa remoção não há o que ler: o evento registra que o arquivo saiu.
 		const content = change.kind === 'deleted' ? undefined : await this.readFile(resource);
@@ -186,8 +203,25 @@ export class ChangeRecorderService implements IChangeRecorderService {
 
 		// Numa remoção o tipo do caminho não está no disco nem no evento: sem prova
 		// de que era arquivo, o que sumiu pode muito bem ser uma pasta.
-		if (change.kind === 'deleted' && await this.isFolder(resource, change.fileUri)) {
-			return undefined;
+		if (change.kind === 'deleted' && !knownFile) {
+			const kind = await this.removedPathKind(resource, change.fileUri);
+
+			// Só a pasta leva arquivo junto, e o ledger é quem sabe quais. O caminho
+			// provado arquivo não paga pergunta nenhuma.
+			if (kind !== 'file') {
+				const files = await this.filesKnownUnder(change.fileUri);
+
+				if (files.length > 0) {
+					await this.closeRemovedFiles(change, files);
+
+					// Havia arquivo sob o caminho: ele era pasta, e pasta não é alteração.
+					return undefined;
+				}
+			}
+
+			if (kind === 'directory') {
+				return undefined;
+			}
 		}
 
 		if (content) {
@@ -269,28 +303,65 @@ export class ChangeRecorderService implements IChangeRecorderService {
 	}
 
 	/**
-	 * O caminho removido era pasta?
+	 * O que o caminho removido era, pelas provas diretas.
 	 *
-	 * Duas provas, nesta ordem: o que a observação já viu — a leitura que se recusou
-	 * e os ancestrais de todo arquivo lido — e, quando ela não sabe, o próprio git,
-	 * que ainda tem o caminho no `HEAD`. Sem prova nenhuma a resposta é "não", e a
-	 * remoção é gravada como sempre foi.
+	 * Duas provas, nesta ordem: a memória da observação — o que ela já provou pasta
+	 * e o que ela já leu como arquivo — e, quando ela não sabe, o próprio git, que
+	 * ainda tem o caminho no `HEAD`. Sem prova nenhuma a resposta é `'unknown'`, e
+	 * a remoção segue o caminho de sempre.
+	 *
+	 * A prova indireta (`filesKnownUnder`) só entra quando esta não responde: um
+	 * filho antigo no ledger não pode engolir a remoção de um arquivo de verdade.
 	 */
-	private async isFolder(resource: URI, fileUri: string): Promise<boolean> {
+	private async removedPathKind(resource: URI, fileUri: string): Promise<WorkspacePathKind> {
 		const key = resource.toString();
 
 		if (this.folders.has(key)) {
-			return true;
+			return 'directory';
 		}
 
-		if (await this.readPathKind(fileUri) !== 'directory') {
-			return false;
+		// Um arquivo lido neste caminho é prova do outro lado: a leitura apagou a
+		// marca de pasta, e o evento dele ficou guardado.
+		if (this.lastEvents.has(key)) {
+			return 'file';
 		}
 
-		// A resposta do git vale para as próximas entregas da mesma remoção.
-		this.folders.add(key);
+		const kind = await this.readPathKind(fileUri);
 
-		return true;
+		if (kind === 'directory') {
+			// A resposta do git vale para as próximas entregas da mesma remoção.
+			this.folders.add(key);
+		}
+
+		return kind;
+	}
+
+	/**
+	 * Os arquivos que o caminho removido levou junto, segundo o ledger.
+	 *
+	 * A lista não vem do disco nem do evento: o watcher do core colapsa os
+	 * `DELETED` dos filhos quando a pasta que os continha é apagada, e o produto
+	 * nunca fica sabendo deles. Quem sabe é o ledger, que guardou cada arquivo lido
+	 * sob aquele caminho. Quem já saiu fica de fora — uma segunda remoção do mesmo
+	 * arquivo seria um evento a mais para a mesma coisa.
+	 */
+	private async filesKnownUnder(folderUri: string): Promise<readonly string[]> {
+		const events = await this.ledger.readCurrentUnder(folderUri);
+
+		return events.filter(event => event.afterHash !== undefined).map(event => event.fileUri);
+	}
+
+	/**
+	 * Grava a remoção de cada arquivo que a pasta levou junto.
+	 *
+	 * Passa pela mesma fila e pelo mesmo caminho de gravação de uma alteração
+	 * comum: o baseline, a sombra e a supressão da entrega repetida valem igual. O
+	 * que não se repete é a pergunta de tipo — estes caminhos vieram do ledger.
+	 */
+	private async closeRemovedFiles(change: IObservedChange, files: readonly string[]): Promise<void> {
+		for (const fileUri of files) {
+			await this.enqueue({ ...change, fileUri }, true);
+		}
 	}
 
 	/**
