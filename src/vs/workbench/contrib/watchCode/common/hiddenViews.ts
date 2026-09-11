@@ -44,6 +44,17 @@ export const HIDDEN_VIEW_CONTAINER_IDS: readonly string[] = [
 ];
 
 /**
+ * Ids das views nativas que o produto nao usa.
+ *
+ * Aqui o alvo e a VIEW, e nao o container: o Explorer continua sendo do produto.
+ * A Timeline nativa mostra o historico de commits do arquivo ativo, que nao e o
+ * que esta IDE conta; o lugar dela passa a ser a lista do Watch Code.
+ */
+export const HIDDEN_VIEW_IDS: readonly string[] = [
+	'timeline',                                        // TimelinePaneId
+];
+
+/**
  * Valores padrao de configuracao do produto.
  *
  * Ficam como default, entao o usuario ainda pode sobrescrever. Cobrem as

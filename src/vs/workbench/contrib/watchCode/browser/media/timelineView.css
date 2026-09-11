@@ -1,0 +1,66 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * Lista da linha do tempo, dentro do Explorer.
+ *
+ * O corpo da view recebe a altura e a lista ocupa o que sobra; a mensagem fica
+ * logo abaixo, para o estado vazio e o de erro.
+ */
+.watch-code-timeline {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+.watch-code-timeline .watch-code-timeline-list {
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.watch-code-timeline .watch-code-timeline-list.hidden {
+	display: none;
+}
+
+.watch-code-timeline .watch-code-timeline-row {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	height: 100%;
+	padding: 0 10px;
+	overflow: hidden;
+}
+
+.watch-code-timeline .watch-code-timeline-row .top {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	overflow: hidden;
+}
+
+.watch-code-timeline .watch-code-timeline-row .top .name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.watch-code-timeline .watch-code-timeline-row .detail {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--vscode-descriptionForeground);
+}
+
+.watch-code-timeline .watch-code-timeline-message {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 10px 10px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.watch-code-timeline .watch-code-timeline-message.hidden {
+	display: none;
+}

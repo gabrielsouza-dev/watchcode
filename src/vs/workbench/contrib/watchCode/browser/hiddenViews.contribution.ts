@@ -7,8 +7,8 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { Extensions as ViewContainerExtensions, IViewContainersRegistry, IViewsRegistry, ViewContainer } from '../../../common/views.js';
-import { HIDDEN_VIEW_CONTAINER_IDS, PRODUCT_SETTING_DEFAULTS } from '../common/hiddenViews.js';
+import { Extensions as ViewContainerExtensions, IViewContainersRegistry, IViewsRegistry, ViewContainer, ViewContainerLocation } from '../../../common/views.js';
+import { HIDDEN_VIEW_CONTAINER_IDS, HIDDEN_VIEW_IDS, PRODUCT_SETTING_DEFAULTS } from '../common/hiddenViews.js';
 
 /**
  * Remove da interface as views nativas que nao fazem parte do produto.
@@ -64,11 +64,41 @@ class HiddenViewsContribution extends Disposable implements IWorkbenchContributi
 			}));
 		}
 
+		// Views que saem de containers que continuam no produto
+		const viewsEscondidas = new Set<string>(HIDDEN_VIEW_IDS);
+
+		const esconderViews = (container: ViewContainer): void => {
+			if (viewsEscondidas.size === 0) {
+				return;
+			}
+
+			const views = viewsRegistry.getViews(container).filter(view => viewsEscondidas.has(view.id));
+			if (views.length > 0) {
+				viewsRegistry.deregisterViews(views, container);
+			}
+		};
+
+		// Varredura inicial: pega o que ja estava registrado quando esta
+		// contribuicao subiu, que e o caso comum, porque os modulos do workbench
+		// registram views na avaliacao do modulo.
+		for (const location of [ViewContainerLocation.Sidebar, ViewContainerLocation.Panel, ViewContainerLocation.AuxiliaryBar]) {
+			for (const container of viewContainersRegistry.getViewContainers(location)) {
+				esconderViews(container);
+			}
+		}
+
 		// Fecha o caso em que as views chegam depois do container
 		this._register(viewsRegistry.onViewsRegistered(evento => {
 			for (const { views, viewContainer } of evento) {
 				if (removidos.has(viewContainer)) {
 					viewsRegistry.deregisterViews(views, viewContainer);
+
+					continue;
+				}
+
+				const escondidas = views.filter(view => viewsEscondidas.has(view.id));
+				if (escondidas.length > 0) {
+					viewsRegistry.deregisterViews(escondidas, viewContainer);
 				}
 			}
 		}));
