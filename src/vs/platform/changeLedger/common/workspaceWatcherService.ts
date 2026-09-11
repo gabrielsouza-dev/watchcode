@@ -153,6 +153,13 @@ export class WorkspaceWatcherService extends Disposable implements IWorkspaceWat
 			timestamp,
 			folderUri: file.folderUri,
 			kind: file.kind
+		}).then(event => {
+			if (!event) {
+				// O caminho que não é arquivo não vira evento: a pasta que nasce dentro do
+				// workspace chega aqui. Não é falha — o rastro fica no trace, que só aparece
+				// com o log detalhado ligado.
+				this.logService.trace(`[watchCode] ignored non-file change: ${file.fileUri}`);
+			}
 		}).catch(error => this.logService.error(`[watchCode] failed to record ${file.fileUri}`, error));
 	}
 

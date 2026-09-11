@@ -27,6 +27,16 @@ const FILE_URI = 'src/vs/base/a.ts';
 /** O provider em memória avisa as mudanças num timer curto. */
 const SETTLED = 30;
 
+/** Log que guarda os erros escritos, para o teste conferir que não houve nenhum. */
+class RecordingLogService extends NullLogService {
+
+	readonly errors: string[] = [];
+
+	override error(message: string | Error, ...args: unknown[]): void {
+		this.errors.push(typeof message === 'string' ? message : message.message);
+	}
+}
+
 /** Recurso de um arquivo dentro do workspace em memória. */
 function resource(fileUri: string): URI {
 	return URI.joinPath(WORKSPACE_FOLDER, fileUri);
@@ -39,6 +49,7 @@ suite('workspaceWatcherService', () => {
 	let fileService: FileService;
 	let ledger: IChangeLedgerService;
 	let service: WorkspaceWatcherService;
+	let logs: RecordingLogService;
 
 	setup(() => {
 		fileService = disposables.add(new FileService(new NullLogService()));
@@ -53,7 +64,8 @@ suite('workspaceWatcherService', () => {
 
 		const recorder: IChangeRecorderService = new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService);
 
-		service = disposables.add(new WorkspaceWatcherService(fileService, workspaceContextService, recorder, new NullLogService()));
+		logs = new RecordingLogService();
+		service = disposables.add(new WorkspaceWatcherService(fileService, workspaceContextService, recorder, logs));
 	});
 
 	test('uma escrita no workspace vira evento observado', async () => {
@@ -241,6 +253,30 @@ suite('workspaceWatcherService', () => {
 		}, {
 			total: 2,
 			lastAfterHash: undefined,
+		});
+	});
+
+	test('a pasta nova não vira evento nem erro no log', async () => {
+		service.start();
+
+		// Criar a pasta chega ao watcher como alteração: o provider avisa o ADDED do
+		// diretório, e o caminho da pasta cai no mesmo fluxo de um arquivo.
+		await fileService.createFolder(resource('src/modulo'));
+		await timeout(SETTLED);
+
+		const eventosDaPasta = (await ledger.readByFile('src')).length + (await ledger.readByFile('src/modulo')).length;
+
+		await fileService.writeFile(resource('src/modulo/regra.ts'), VSBuffer.fromString('novo'));
+		await timeout(SETTLED);
+
+		assert.deepStrictEqual({
+			eventosDaPasta,
+			eventosDoArquivo: (await ledger.readByFile('src/modulo/regra.ts')).length,
+			erros: logs.errors,
+		}, {
+			eventosDaPasta: 0,
+			eventosDoArquivo: 1,
+			erros: [],
 		});
 	});
 

@@ -8,7 +8,7 @@ import { VSBuffer } from '../../../base/common/buffer.js';
 import { URI } from '../../../base/common/uri.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { IEnvironmentService } from '../../environment/common/environment.js';
-import { IFileService } from '../../files/common/files.js';
+import { FileOperationResult, IFileService, toFileOperationResult } from '../../files/common/files.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../workspace/common/workspace.js';
 import { BaselineProvider, ReadFromHead } from './baseline.js';
@@ -64,12 +64,16 @@ export interface IChangeRecorderService {
 	 * uma entrega repetida não é uma alteração nova. Nesse caso devolve o evento
 	 * anterior, sem tocar no ledger.
 	 *
+	 * Devolve `undefined` quando o caminho observado não é um arquivo: o watcher
+	 * avisa quando uma pasta nasce dentro do workspace, e uma pasta não tem o que
+	 * registrar. Nada é gravado, e quem chamou não tem evento nenhum em mãos.
+	 *
 	 * Rejeita quando um arquivo que deveria existir não pode ser lido: sem
 	 * conteúdo atual não há "depois", e um evento sem "depois" só representa
 	 * remoção. Por isso uma remoção é gravada sem ler o disco, com o "depois"
 	 * ausente.
 	 */
-	recordChange(change: IObservedChange): Promise<ChangeEvent>;
+	recordChange(change: IObservedChange): Promise<ChangeEvent | undefined>;
 }
 
 /**
@@ -96,7 +100,7 @@ export class ChangeRecorderService implements IChangeRecorderService {
 	private readonly lastEvents = new Map<string, ChangeEvent>();
 
 	/** Registro em andamento por arquivo: as entregas da mesma escrita não podem se cruzar. */
-	private readonly recording = new Map<string, Promise<ChangeEvent>>();
+	private readonly recording = new Map<string, Promise<ChangeEvent | undefined>>();
 
 	constructor(
 		@IChangeLedgerService private readonly ledger: IChangeLedgerService,
@@ -110,7 +114,7 @@ export class ChangeRecorderService implements IChangeRecorderService {
 		this.baselineProvider = new BaselineProvider(readFromHead, this.shadowStore);
 	}
 
-	async recordChange(change: IObservedChange): Promise<ChangeEvent> {
+	async recordChange(change: IObservedChange): Promise<ChangeEvent | undefined> {
 		const resource = this.resolveResource(change);
 		const key = resource.toString();
 
@@ -132,10 +136,17 @@ export class ChangeRecorderService implements IChangeRecorderService {
 	}
 
 	/** Grava a alteração, se ela for diferente do último evento do mesmo arquivo. */
-	private async record(resource: URI, change: IObservedChange): Promise<ChangeEvent> {
+	private async record(resource: URI, change: IObservedChange): Promise<ChangeEvent | undefined> {
 		const key = resource.toString();
 		// Numa remoção não há o que ler: o evento registra que o arquivo saiu.
 		const content = change.kind === 'deleted' ? undefined : await this.readFile(resource);
+
+		// Sem conteúdo e sem remoção, o caminho não é um arquivo: pasta não é
+		// alteração e não tem o que gravar. A saída é antes de tocar no ledger.
+		if (change.kind !== 'deleted' && !content) {
+			return undefined;
+		}
+
 		const afterHash = content ? await this.ledger.recordSnapshot(content) : undefined;
 		const previous = this.lastEvents.get(key);
 
@@ -185,11 +196,26 @@ export class ChangeRecorderService implements IChangeRecorderService {
 		return event;
 	}
 
-	/** Lê o conteúdo atual do arquivo observado. */
-	private async readFile(resource: URI): Promise<VSBuffer> {
-		const content = await this.fileService.readFile(resource);
+	/**
+	 * Lê o conteúdo atual do arquivo observado.
+	 *
+	 * Devolve `undefined` quando o caminho é uma pasta: o serviço de arquivos
+	 * consulta o tipo antes de ler e recusa a leitura com o resultado de "é
+	 * pasta". Qualquer outra falha continua subindo — arquivo que sumiu ou sem
+	 * permissão é erro de verdade, não um caminho que não é arquivo.
+	 */
+	private async readFile(resource: URI): Promise<VSBuffer | undefined> {
+		try {
+			const content = await this.fileService.readFile(resource);
 
-		return content.value;
+			return content.value;
+		} catch (error) {
+			if (toFileOperationResult(error) === FileOperationResult.FILE_IS_DIRECTORY) {
+				return undefined;
+			}
+
+			throw error;
+		}
 	}
 
 	/** Converte o caminho relativo do evento no recurso do arquivo. */

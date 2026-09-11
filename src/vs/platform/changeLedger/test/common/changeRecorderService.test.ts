@@ -15,6 +15,7 @@ import { InMemoryFileSystemProvider } from '../../../files/common/inMemoryFilesy
 import { NullLogService } from '../../../log/common/log.js';
 import { IWorkspaceContextService } from '../../../workspace/common/workspace.js';
 import { ChangeLedgerService, IChangeLedgerService } from '../../common/changeLedgerService.js';
+import { ChangeEvent } from '../../common/changeEvent.js';
 import { ChangeRecorderService, IChangeRecorderService, ObservedChangeKind, WorkspaceHeadReader } from '../../common/changeRecorderService.js';
 import { computeContentHash } from '../../common/snapshotHash.js';
 
@@ -25,6 +26,22 @@ const TIMESTAMP = 1767225600000;
 /** Lê o conteúdo do arquivo dentro do workspace em memória. */
 function resource(fileUri: string): URI {
 	return URI.joinPath(WORKSPACE_FOLDER, fileUri);
+}
+
+/**
+ * O evento que o recorder gravou.
+ *
+ * Os testes de alteração de arquivo exigem que ele exista: `undefined` é a
+ * resposta para o caminho que não é arquivo, e nenhum deles testa esse caso.
+ */
+async function recordedEvent(change: Promise<ChangeEvent | undefined>): Promise<ChangeEvent> {
+	const event = await change;
+
+	if (!event) {
+		throw new Error('o recorder nao gravou evento nenhum');
+	}
+
+	return event;
 }
 
 suite('changeRecorderService', () => {
@@ -72,7 +89,7 @@ suite('changeRecorderService', () => {
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
 		const before = VSBuffer.fromString('antes');
 
-		const event = await createRecorder(() => Promise.resolve(before)).recordChange(observedChange());
+		const event = await recordedEvent(createRecorder(() => Promise.resolve(before)).recordChange(observedChange()));
 
 		assert.deepStrictEqual({
 			source: event.source,
@@ -99,7 +116,7 @@ suite('changeRecorderService', () => {
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
 		const before = VSBuffer.fromString('antes');
 
-		const event = await createRecorder(() => Promise.resolve(before)).recordChange(observedChange());
+		const event = await recordedEvent(createRecorder(() => Promise.resolve(before)).recordChange(observedChange()));
 		const stored = event.beforeHash ? await ledger.readSnapshot(event.beforeHash) : undefined;
 
 		assert.deepStrictEqual({
@@ -114,7 +131,7 @@ suite('changeRecorderService', () => {
 	test('sem baseline algum o evento é gravado sem "antes"', async () => {
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
 
-		const event = await createRecorder().recordChange(observedChange());
+		const event = await recordedEvent(createRecorder().recordChange(observedChange()));
 
 		assert.strictEqual(event.beforeHash, undefined);
 		assert.strictEqual(event.afterHash, await computeContentHash(VSBuffer.fromString('depois')));
@@ -127,7 +144,7 @@ suite('changeRecorderService', () => {
 		await recorder.recordChange(observedChange());
 
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('segundo'));
-		const second = await recorder.recordChange(observedChange());
+		const second = await recordedEvent(recorder.recordChange(observedChange()));
 
 		assert.deepStrictEqual({
 			beforeHash: second.beforeHash,
@@ -141,7 +158,7 @@ suite('changeRecorderService', () => {
 	test('a atribuição do anúncio é preservada no evento', async () => {
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
 
-		const event = await createRecorder().recordChange(observedChange({ attribution: 'hook' }));
+		const event = await recordedEvent(createRecorder().recordChange(observedChange({ attribution: 'hook' })));
 
 		assert.strictEqual(event.attribution, 'hook');
 	});
@@ -149,11 +166,51 @@ suite('changeRecorderService', () => {
 	test('o evento gravado entra no ledger como atual', async () => {
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
 
-		const event = await createRecorder().recordChange(observedChange());
+		const event = await recordedEvent(createRecorder().recordChange(observedChange()));
 		const stored = await ledger.readByFile(FILE_URI);
 
 		assert.strictEqual(stored.length, 1);
 		assert.deepStrictEqual(stored[0], event);
+	});
+
+	test('a pasta não é arquivo e não vira evento', async () => {
+		const pasta = 'pasta';
+
+		await fileService.createFolder(resource(pasta));
+
+		const event = await createRecorder().recordChange(observedChange({ fileUri: pasta }));
+
+		assert.deepStrictEqual({
+			event,
+			eventos: (await ledger.readByFile(pasta)).length,
+		}, {
+			event: undefined,
+			eventos: 0,
+		});
+	});
+
+	test('a pasta não atrapalha o arquivo que nasce no mesmo caminho', async () => {
+		const recorder = createRecorder();
+		const caminho = 'alvo';
+
+		await fileService.createFolder(resource(caminho));
+		const pasta = await recorder.recordChange(observedChange({ fileUri: caminho }));
+
+		// A pasta sai e um arquivo ocupa o mesmo caminho: sem nada memorizado para a
+		// pasta, o arquivo tem de virar evento normalmente.
+		await fileService.del(resource(caminho), { recursive: true });
+		await fileService.writeFile(resource(caminho), VSBuffer.fromString('agora e arquivo'));
+		const arquivo = await recorder.recordChange(observedChange({ fileUri: caminho }));
+
+		assert.deepStrictEqual({
+			pasta,
+			arquivo: arquivo?.afterHash,
+			eventos: (await ledger.readByFile(caminho)).length,
+		}, {
+			pasta: undefined,
+			arquivo: await computeContentHash(VSBuffer.fromString('agora e arquivo')),
+			eventos: 1,
+		});
 	});
 
 	test('arquivo ilegível não vira evento', async () => {
@@ -167,7 +224,7 @@ suite('changeRecorderService', () => {
 		const recorder = createRecorder();
 
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('primeiro'));
-		const first = await recorder.recordChange(observedChange());
+		const first = await recordedEvent(recorder.recordChange(observedChange()));
 
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('segundo'));
 		await recorder.recordChange(observedChange());
@@ -189,10 +246,10 @@ suite('changeRecorderService', () => {
 		const recorder = createRecorder();
 
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
-		const first = await recorder.recordChange(observedChange());
+		const first = await recordedEvent(recorder.recordChange(observedChange()));
 		// A raiz do workspace é observada por mais de um pedido: a mesma escrita
 		// chega uma segunda vez, e essa repetição não é uma alteração nova.
-		const repeated = await recorder.recordChange(observedChange());
+		const repeated = await recordedEvent(recorder.recordChange(observedChange()));
 
 		assert.deepStrictEqual({
 			total: (await ledger.readByFile(FILE_URI)).length,
@@ -211,8 +268,8 @@ suite('changeRecorderService', () => {
 		// As duas entregas chegam quase juntas: nenhuma delas pode gravar antes de a
 		// outra olhar o que já foi registrado.
 		const [first, second] = await Promise.all([
-			recorder.recordChange(observedChange()),
-			recorder.recordChange(observedChange()),
+			recordedEvent(recorder.recordChange(observedChange())),
+			recordedEvent(recorder.recordChange(observedChange())),
 		]);
 
 		assert.deepStrictEqual({
@@ -241,10 +298,10 @@ suite('changeRecorderService', () => {
 		const recorder = createRecorder();
 
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('um'));
-		const first = await recorder.recordChange(observedChange());
+		const first = await recordedEvent(recorder.recordChange(observedChange()));
 
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('dois'));
-		const second = await recorder.recordChange(observedChange());
+		const second = await recordedEvent(recorder.recordChange(observedChange()));
 
 		assert.notStrictEqual(first.id, second.id);
 	});
@@ -256,7 +313,7 @@ suite('changeRecorderService', () => {
 		await recorder.recordChange(observedChange());
 
 		await fileService.del(resource(FILE_URI));
-		const removal = await recorder.recordChange(observedChange({ kind: 'deleted' }));
+		const removal = await recordedEvent(recorder.recordChange(observedChange({ kind: 'deleted' })));
 
 		assert.deepStrictEqual({
 			afterHash: removal.afterHash,
@@ -268,7 +325,7 @@ suite('changeRecorderService', () => {
 	});
 
 	test('a remoção de um arquivo que nunca existiu não rejeita', async () => {
-		const removal = await createRecorder().recordChange(observedChange({ kind: 'deleted' }));
+		const removal = await recordedEvent(createRecorder().recordChange(observedChange({ kind: 'deleted' })));
 
 		assert.deepStrictEqual({
 			afterHash: removal.afterHash,
@@ -316,7 +373,7 @@ suite('changeRecorderService', () => {
 		} as unknown as IWorkspaceContextService;
 		const recorder = new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService);
 
-		const event = await recorder.recordChange(observedChange({ folderUri: secondFolder }));
+		const event = await recordedEvent(recorder.recordChange(observedChange({ folderUri: secondFolder })));
 
 		assert.strictEqual(event.afterHash, await computeContentHash(VSBuffer.fromString('na segunda pasta')));
 	});
