@@ -53,7 +53,7 @@ suite('changeLedgerService', () => {
 	let fileService: FileService;
 
 	function createLedger(workspaceId = 'workspace-1'): IChangeLedgerService {
-		return new ChangeLedgerService(fileService, environmentService(), workspaceContextService(workspaceId));
+		return disposables.add(new ChangeLedgerService(fileService, environmentService(), workspaceContextService(workspaceId)));
 	}
 
 	setup(() => {

@@ -65,7 +65,7 @@ suite('changeRecorderService', () => {
 			getWorkspace: () => ({ id: 'workspace-1', folders: [{ uri: WORKSPACE_FOLDER }] }),
 		} as unknown as IWorkspaceContextService;
 
-		ledger = new ChangeLedgerService(fileService, environmentService, workspaceContextService);
+		ledger = disposables.add(new ChangeLedgerService(fileService, environmentService, workspaceContextService));
 	});
 
 	test('registra a alteração com o "antes" vindo do git', async () => {

@@ -5,6 +5,8 @@
 // allow-any-unicode-comment-file -- comentarios em portugues usam acentuacao.
 
 import { VSBuffer } from '../../../base/common/buffer.js';
+import { Emitter, Event } from '../../../base/common/event.js';
+import { Disposable } from '../../../base/common/lifecycle.js';
 import { IEnvironmentService } from '../../environment/common/environment.js';
 import { IFileService } from '../../files/common/files.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
@@ -45,6 +47,15 @@ export interface IChangeLedgerService {
 	readonly snapshots: ISnapshotStore;
 
 	/**
+	 * Avisa que um evento foi gravado, com o evento e o id do rebaixado.
+	 *
+	 * O record() é o único caminho de escrita do ledger: quem observa este evento
+	 * fica sabendo de toda gravação sem varrer o disco. O aviso sai depois de o
+	 * novo 'current' estar gravado e o anterior rebaixado.
+	 */
+	readonly onDidRecord: Event<IRecordEventResult>;
+
+	/**
 	 * Grava um evento e aplica a regra de atualidade: o evento anterior do mesmo
 	 * arquivo passa a 'history' e o novo fica 'current'.
 	 */
@@ -67,9 +78,14 @@ export interface IChangeLedgerService {
 }
 
 /** Implementação do ledger sobre o serviço de arquivos do editor. */
-export class ChangeLedgerService implements IChangeLedgerService {
+export class ChangeLedgerService extends Disposable implements IChangeLedgerService {
 
 	readonly _serviceBrand: undefined;
+
+	/** O aviso de gravação: sai depois de o evento estar gravado e o anterior rebaixado. */
+	private readonly _onDidRecord = this._register(new Emitter<IRecordEventResult>());
+
+	readonly onDidRecord = this._onDidRecord.event;
 
 	private readonly layout: ILedgerStorageLayout;
 
@@ -80,6 +96,8 @@ export class ChangeLedgerService implements IChangeLedgerService {
 		@IEnvironmentService environmentService: IEnvironmentService,
 		@IWorkspaceContextService workspaceContextService: IWorkspaceContextService
 	) {
+		super();
+
 		this.layout = createLedgerStorageLayout(environmentService.workspaceStorageHome, workspaceContextService.getWorkspace().id);
 		this.snapshots = new SnapshotStore(this.layout, fileService);
 	}
@@ -104,7 +122,13 @@ export class ChangeLedgerService implements IChangeLedgerService {
 			await this.demote(supersededEventId);
 		}
 
-		return { event: stored, supersededEventId };
+		const result = { event: stored, supersededEventId };
+
+		// O aviso sai depois de o novo 'current' estar gravado e o anterior
+		// rebaixado: quem reage a ele lê o ledger já no estado final.
+		this._onDidRecord.fire(result);
+
+		return result;
 	}
 
 	async readAll(): Promise<readonly ChangeEvent[]> {
@@ -229,7 +253,12 @@ function withoutUndefined(event: ChangeEvent): ChangeEvent {
 	return Object.fromEntries(Object.entries(event).filter(([, value]) => value !== undefined)) as ChangeEvent;
 }
 
-/** Ordem cronológica, com o id como desempate estável. */
-function compareEvents(a: ChangeEvent, b: ChangeEvent): number {
+/**
+ * Ordem cronológica, com o id como desempate estável.
+ *
+ * É a ordem canônica do módulo: a timeline a reusa para não reimplementar o
+ * critério.
+ */
+export function compareEvents(a: ChangeEvent, b: ChangeEvent): number {
 	return a.timestamp - b.timestamp || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }

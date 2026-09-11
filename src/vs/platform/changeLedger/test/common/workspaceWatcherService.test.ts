@@ -49,7 +49,7 @@ suite('workspaceWatcherService', () => {
 			getWorkspace: () => ({ id: 'workspace-1', folders: [{ uri: WORKSPACE_FOLDER }] }),
 		} as unknown as IWorkspaceContextService;
 
-		ledger = new ChangeLedgerService(fileService, environmentService, workspaceContextService);
+		ledger = disposables.add(new ChangeLedgerService(fileService, environmentService, workspaceContextService));
 
 		const recorder: IChangeRecorderService = new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService);
 

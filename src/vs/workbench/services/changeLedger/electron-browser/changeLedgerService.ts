@@ -7,6 +7,7 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ChangeLedgerService, IChangeLedgerService } from '../../../../platform/changeLedger/common/changeLedgerService.js';
 import { ChangeRecorderService, IChangeRecorderService } from '../../../../platform/changeLedger/common/changeRecorderService.js';
+import { ITimelineService, TimelineService } from '../../../../platform/changeLedger/common/timelineService.js';
 import { IWorkspaceWatcherService, WorkspaceWatcherService } from '../../../../platform/changeLedger/common/workspaceWatcherService.js';
 import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -20,6 +21,9 @@ import { GitHeadReader } from './gitHeadReader.js';
 
 // O ledger é passivo: grava e lê.
 registerSingleton(IChangeLedgerService, ChangeLedgerService, InstantiationType.Delayed);
+
+// A timeline é o modelo de leitura do ledger: consultas e aviso de mudança.
+registerSingleton(ITimelineService, TimelineService, InstantiationType.Delayed);
 
 // O watcher observa as pastas do workspace e entrega cada alteração ao recorder.
 registerSingleton(IWorkspaceWatcherService, WorkspaceWatcherService, InstantiationType.Delayed);
