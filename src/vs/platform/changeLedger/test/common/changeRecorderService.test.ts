@@ -16,7 +16,7 @@ import { NullLogService } from '../../../log/common/log.js';
 import { IWorkspaceContextService } from '../../../workspace/common/workspace.js';
 import { ChangeLedgerService, IChangeLedgerService } from '../../common/changeLedgerService.js';
 import { ChangeEvent } from '../../common/changeEvent.js';
-import { ChangeRecorderService, IChangeRecorderService, ObservedChangeKind, WorkspaceHeadReader } from '../../common/changeRecorderService.js';
+import { ChangeRecorderService, IChangeRecorderService, ObservedChangeKind, WorkspaceHeadReader, WorkspacePathKindReader } from '../../common/changeRecorderService.js';
 import { computeContentHash } from '../../common/snapshotHash.js';
 
 const WORKSPACE_FOLDER = URI.from({ scheme: Schemas.inMemory, path: '/workspace' });
@@ -51,15 +51,13 @@ suite('changeRecorderService', () => {
 	let fileService: FileService;
 	let ledger: IChangeLedgerService;
 
-	function createRecorder(readFromHead?: WorkspaceHeadReader): IChangeRecorderService {
+	function createRecorder(readFromHead?: WorkspaceHeadReader, readPathKind?: WorkspacePathKindReader): IChangeRecorderService {
 		const environmentService = { workspaceStorageHome: URI.from({ scheme: Schemas.inMemory, path: '/storage' }) } as unknown as IEnvironmentService;
 		const workspaceContextService = {
 			getWorkspace: () => ({ id: 'workspace-1', folders: [{ uri: WORKSPACE_FOLDER }] }),
 		} as unknown as IWorkspaceContextService;
 
-		return readFromHead
-			? new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService, readFromHead)
-			: new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService);
+		return new ChangeRecorderService(ledger, fileService, workspaceContextService, environmentService, readFromHead, readPathKind);
 	}
 
 	function observedChange(overrides: Partial<{ fileUri: string; attribution: 'hook' | 'observed'; kind: ObservedChangeKind; folderUri: URI }> = {}) {
@@ -208,6 +206,125 @@ suite('changeRecorderService', () => {
 			eventos: (await ledger.readByFile(caminho)).length,
 		}, {
 			pasta: undefined,
+			arquivo: await computeContentHash(VSBuffer.fromString('agora e arquivo')),
+			eventos: 1,
+		});
+	});
+
+	test('a pasta removida não vira evento', async () => {
+		const recorder = createRecorder();
+		const pasta = 'pasta';
+
+		// A pasta nasce e é lida: é assim que a observação aprende que ela é pasta.
+		await fileService.createFolder(resource(pasta));
+		const criacao = await recorder.recordChange(observedChange({ fileUri: pasta }));
+
+		// A remoção não lê o disco: a prova tem de vir do que já foi visto.
+		await fileService.del(resource(pasta), { recursive: true });
+		const remocao = await recorder.recordChange(observedChange({ fileUri: pasta, kind: 'deleted' }));
+
+		assert.deepStrictEqual({
+			criacao,
+			remocao,
+			eventos: (await ledger.readByFile(pasta)).length,
+		}, {
+			criacao: undefined,
+			remocao: undefined,
+			eventos: 0,
+		});
+	});
+
+	test('a pasta com arquivo dentro é reconhecida sem consultar o git', async () => {
+		const consultados: string[] = [];
+		const recorder = createRecorder(undefined, async fileUri => {
+			consultados.push(fileUri);
+
+			return 'unknown';
+		});
+		const pasta = 'pasta';
+		const arquivo = 'pasta/regra.ts';
+
+		// O arquivo dentro da pasta prova que ela é pasta, e a prova fica guardada.
+		await fileService.writeFile(resource(arquivo), VSBuffer.fromString('dentro'));
+		await recordedEvent(recorder.recordChange(observedChange({ fileUri: arquivo })));
+
+		await fileService.del(resource(pasta), { recursive: true });
+		const remocao = await recorder.recordChange(observedChange({ fileUri: pasta, kind: 'deleted' }));
+
+		assert.deepStrictEqual({ remocao, consultados }, { remocao: undefined, consultados: [] });
+	});
+
+	test('o git reconhece a pasta que já existia', async () => {
+		const consultados: string[] = [];
+		const recorder = createRecorder(undefined, async fileUri => {
+			consultados.push(fileUri);
+
+			return 'directory';
+		});
+
+		const remocao = await recorder.recordChange(observedChange({ fileUri: 'pasta-antiga', kind: 'deleted' }));
+
+		assert.deepStrictEqual({
+			remocao,
+			consultados,
+			eventos: (await ledger.readByFile('pasta-antiga')).length,
+		}, {
+			remocao: undefined,
+			consultados: ['pasta-antiga'],
+			eventos: 0,
+		});
+	});
+
+	test('o git dizendo arquivo mantém a remoção', async () => {
+		const recorder = createRecorder(undefined, async () => 'file');
+		const caminho = 'apagado.ts';
+
+		const remocao = await recordedEvent(recorder.recordChange(observedChange({ fileUri: caminho, kind: 'deleted' })));
+
+		assert.deepStrictEqual({
+			fileUri: remocao.fileUri,
+			afterHash: remocao.afterHash,
+			eventos: (await ledger.readByFile(caminho)).length,
+		}, {
+			fileUri: caminho,
+			afterHash: undefined,
+			eventos: 1,
+		});
+	});
+
+	test('sem prova nenhuma a remoção continua sendo gravada', async () => {
+		const recorder = createRecorder(undefined, async () => 'unknown');
+
+		const remocao = await recordedEvent(recorder.recordChange(observedChange({ fileUri: 'nunca-visto.ts', kind: 'deleted' })));
+
+		assert.deepStrictEqual({
+			afterHash: remocao.afterHash,
+			beforeHash: remocao.beforeHash,
+		}, {
+			afterHash: undefined,
+			beforeHash: undefined,
+		});
+	});
+
+	test('o arquivo que nasce no lugar da pasta removida vira evento', async () => {
+		const recorder = createRecorder();
+		const caminho = 'alvo';
+
+		await fileService.createFolder(resource(caminho));
+		await recorder.recordChange(observedChange({ fileUri: caminho }));
+
+		// A pasta sai e um arquivo ocupa o lugar: a marca de pasta do caminho cai na
+		// leitura, e o evento do arquivo nasce normalmente.
+		await fileService.del(resource(caminho), { recursive: true });
+		await recorder.recordChange(observedChange({ fileUri: caminho, kind: 'deleted' }));
+
+		await fileService.writeFile(resource(caminho), VSBuffer.fromString('agora e arquivo'));
+		const arquivo = await recordedEvent(recorder.recordChange(observedChange({ fileUri: caminho })));
+
+		assert.deepStrictEqual({
+			arquivo: arquivo.afterHash,
+			eventos: (await ledger.readByFile(caminho)).length,
+		}, {
 			arquivo: await computeContentHash(VSBuffer.fromString('agora e arquivo')),
 			eventos: 1,
 		});

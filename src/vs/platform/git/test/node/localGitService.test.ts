@@ -41,7 +41,7 @@ function createDivergedPullError(): cp.ExecFileException {
 	return error;
 }
 
-function createPullError(message: string, stderr: string, code = 128): cp.ExecFileException {
+function createGitError(message: string, stderr: string, code = 128): cp.ExecFileException {
 	const error = new Error(message) as cp.ExecFileException & { stderr: string };
 	error.code = code;
 	error.stderr = stderr;
@@ -111,7 +111,7 @@ suite('LocalGitService', () => {
 	});
 
 	test('pull rethrows non-fast-forward errors without retrying', async () => {
-		const pullError = createPullError('fatal: Failed to pull', 'fatal: Authentication failed');
+		const pullError = createGitError('fatal: Failed to pull', 'fatal: Authentication failed');
 		const expectations: IExecFileExpectation[] = [
 			{ args: ['rev-parse', 'HEAD'], stdout: 'aaaa\n' },
 			{ args: ['pull', '--ff-only'], error: pullError, stderr: 'fatal: Authentication failed' },
@@ -126,7 +126,7 @@ suite('LocalGitService', () => {
 	});
 
 	test('pull rethrows retry failures that are not fast-forward related', async () => {
-		const retryError = createPullError('fatal: Failed to pull', 'fatal: Authentication failed');
+		const retryError = createGitError('fatal: Failed to pull', 'fatal: Authentication failed');
 		const expectations: IExecFileExpectation[] = [
 			{ args: ['rev-parse', 'HEAD'], stdout: 'aaaa\n' },
 			{ args: ['pull', '--ff-only'], error: createDivergedPullError() },
@@ -242,4 +242,38 @@ suite('LocalGitService', () => {
 
 		assert.strictEqual(await runGit('rev-parse', 'HEAD'), initialCommit);
 	}).timeout(20_000);
+
+	test('show pede o conteúdo de um blob, e não a listagem de uma árvore', async () => {
+		const falhaDaPasta = 'fatal: git cat-file HEAD:src: bad file';
+		const expectations: IExecFileExpectation[] = [
+			{ args: ['cat-file', 'blob', 'HEAD:src/a.ts'], stdout: 'conteudo' },
+			{ args: ['cat-file', 'blob', 'HEAD:src'], error: createGitError(falhaDaPasta, falhaDaPasta) },
+		];
+		const service = new LocalGitService(new NullLogService(), createExecFile(expectations));
+
+		const arquivo = await service.show('C:\\repo', 'src/a.ts');
+		const pasta = await service.show('C:\\repo', 'src');
+
+		assert.deepStrictEqual({ arquivo, pasta }, { arquivo: 'conteudo', pasta: undefined });
+		assert.strictEqual(expectations.length, 0);
+	});
+
+	test('catFileType responde o tipo do caminho no HEAD', async () => {
+		const ausente = 'fatal: path sumiu.ts does not exist in HEAD';
+		const expectations: IExecFileExpectation[] = [
+			{ args: ['cat-file', '-t', 'HEAD:src/a.ts'], stdout: 'blob\n' },
+			{ args: ['cat-file', '-t', 'HEAD:src'], stdout: 'tree\n' },
+			{ args: ['cat-file', '-t', 'HEAD:sumiu.ts'], error: createGitError(ausente, ausente) },
+			{ args: ['cat-file', '-t', 'HEAD:sub'], stdout: 'commit\n' },
+		];
+		const service = new LocalGitService(new NullLogService(), createExecFile(expectations));
+
+		const arquivo = await service.catFileType('C:\\repo', 'src/a.ts');
+		const pasta = await service.catFileType('C:\\repo', 'src');
+		const sumiu = await service.catFileType('C:\\repo', 'sumiu.ts');
+		const outro = await service.catFileType('C:\\repo', 'sub');
+
+		assert.deepStrictEqual({ arquivo, pasta, sumiu, outro }, { arquivo: 'blob', pasta: 'tree', sumiu: undefined, outro: undefined });
+		assert.strictEqual(expectations.length, 0);
+	});
 });

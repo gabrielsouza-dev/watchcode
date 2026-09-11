@@ -251,6 +251,13 @@ const FOLDER_FILE_TOTAL = 12;
 /** Espera a alteracao da pasta chegar ao ledger, caso ela venha a chegar. */
 const FOLDER_WAIT_MS = 2000;
 
+/** Pasta que ja existia quando a observacao comecou, rastreada pelo git. */
+const FOLDER_TRACKED = 'src/legado';
+const FOLDER_TRACKED_FILE = 'src/legado/antigo.ts';
+
+/** Pasta que ja existia, vazia e fora do git: o residuo que esta tarefa nao corrige. */
+const FOLDER_EMPTY = 'src/vazio';
+
 /** O dialeto de cada arquivo de teste. */
 type Linguagem = 'ts' | 'js' | 'cs';
 
@@ -1922,6 +1929,14 @@ const TESTS: readonly IManualTest[] = [
 {
 	id: 'T-0011',
 	title: 'Pasta nao e alteracao',
+	prepare: workspace => {
+		// A pasta rastreada chega commitada: quando ela for apagada, e o git que vai
+		// responder o tipo dela, porque a observacao nunca chegou a le-la.
+		commitWorkspace(workspace, [[FOLDER_TRACKED_FILE, longContent('ts', false, 1, FOLDER_FILE_TOTAL)]]);
+
+		// Uma pasta vazia nao existe para o git: e ela o residuo medido na fase 5.
+		mkdirSync(join(workspace, FOLDER_EMPTY), { recursive: true });
+	},
 	run: async (session, t) => {
 		const page = session.page;
 		const workspace = session.paths.workspace;
@@ -1963,18 +1978,47 @@ const TESTS: readonly IManualTest[] = [
 
 		t.check('fase 2: a pasta nao aparece na linha do tempo', linhas.every(name => name !== nomeDaPasta), 'linhas=' + JSON.stringify(linhas));
 
-		// Fase 3: a medicao aprovada no D2. A remocao de pasta nao e corrigida nesta
-		// tarefa, entao o cenario mede o que acontece e imprime o numero. A conferencia
-		// nunca reprova: nao ha promessa nenhuma sobre o resultado.
+		// Fase 3: a pasta removida. A observacao viu a pasta nascer, entao sabe que ela e
+		// pasta; a remocao nao pode ler o disco, e e essa prova que decide.
 		rmSync(targetOf(workspace, FOLDER_ONLY), { recursive: true });
 		await delay(FOLDER_WAIT_MS);
 		await waitUntilQuiet(session.ledger);
 
-		const depois = session.ledger.events();
-		const pastaRemovida = depois.filter(event => event.fileUri === FOLDER_ONLY).length;
-		const arquivoRemovido = depois.filter(event => event.fileUri === FOLDER_FILE).length;
+		const depoisDaRemocao = session.ledger.events();
+		const pastaRemovida = depoisDaRemocao.filter(event => event.fileUri === FOLDER_ONLY).length;
 
-		t.check('medicao (nao reprova): a pasta removida vira evento?', true, 'pasta=' + pastaRemovida + ' arquivo=' + arquivoRemovido);
+		t.check('fase 3: a pasta removida nao vira evento', pastaRemovida === 0, 'eventos da pasta=' + pastaRemovida);
+
+		// O arquivo de dentro nao ganha evento de remocao: o watcher do core colapsa os
+		// DELETED dos filhos quando a pasta que os continha some (coalesceEvents,
+		// files/common/watcher.ts:438). O evento nunca chega ao produto, entao a medicao
+		// registra o numero em vez de prometer o que a plataforma nao entrega — a
+		// pendencia esta registrada na E1-T9.
+		t.check('medicao (nao reprova): fase 3, o arquivo de dentro vira evento de remocao?', true, 'eventos do arquivo=' + session.ledger.eventsOf(FOLDER_FILE).length);
+
+		// Fase 4: a pasta que ja existia. A observacao nunca a leu — quem responde o tipo
+		// dela e o git, que ainda tem o caminho no HEAD. A pasta vazia da fase 5 e o
+		// contraste: sem prova nenhuma, a remocao vira evento.
+		rmSync(targetOf(workspace, FOLDER_TRACKED), { recursive: true });
+		await delay(FOLDER_WAIT_MS);
+		await waitUntilQuiet(session.ledger);
+
+		const pastaDoGit = session.ledger.events().filter(event => event.fileUri === FOLDER_TRACKED).length;
+
+		t.check('fase 4: a pasta rastreada pelo git nao vira evento', pastaDoGit === 0, 'eventos da pasta=' + pastaDoGit);
+		t.check('medicao (nao reprova): fase 4, o arquivo de dentro vira evento de remocao?', true, 'eventos do arquivo=' + session.ledger.eventsOf(FOLDER_TRACKED_FILE).length);
+
+		// Fase 5: a medicao do residuo. Pasta vazia nao esta no git e a observacao nunca a
+		// leu: nao ha prova nenhuma de que ela e pasta. A conferencia nunca reprova — nao ha
+		// promessa sobre o resultado, e a correcao dependeria de varrer o workspace ao ligar
+		// a observacao, decisao recusada na E1-T5.
+		rmSync(targetOf(workspace, FOLDER_EMPTY), { recursive: true });
+		await delay(FOLDER_WAIT_MS);
+		await waitUntilQuiet(session.ledger);
+
+		const vazia = session.ledger.events().filter(event => event.fileUri === FOLDER_EMPTY).length;
+
+		t.check('medicao (nao reprova): a pasta vazia que ja existia vira evento?', true, 'pasta vazia=' + vazia);
 	}
 },
 ];

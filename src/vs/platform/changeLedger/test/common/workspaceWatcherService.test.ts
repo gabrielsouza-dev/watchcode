@@ -280,6 +280,39 @@ suite('workspaceWatcherService', () => {
 		});
 	});
 
+	test('a pasta removida não vira evento nem erro no log', async () => {
+		service.start();
+
+		// A pasta nasce e o arquivo dentro dela é lido: é assim que a observação
+		// aprende que ela é pasta, e é essa prova que a remoção vai usar.
+		await fileService.createFolder(resource('src/modulo'));
+		await timeout(SETTLED);
+		await fileService.writeFile(resource('src/modulo/regra.ts'), VSBuffer.fromString('dentro'));
+		await timeout(SETTLED);
+
+		// O provider em memória avisa só o caminho apagado, e não os filhos: o arquivo
+		// sai primeiro, para a remoção dele ser medida de verdade.
+		await fileService.del(resource('src/modulo/regra.ts'));
+		await timeout(SETTLED);
+
+		await fileService.del(resource('src/modulo'), { recursive: true });
+		await timeout(SETTLED);
+
+		const doArquivo = await ledger.readByFile('src/modulo/regra.ts');
+
+		assert.deepStrictEqual({
+			eventosDaPasta: (await ledger.readByFile('src/modulo')).length,
+			eventosDoArquivo: doArquivo.length,
+			ultimoSemDepois: doArquivo[doArquivo.length - 1]?.afterHash,
+			erros: logs.errors,
+		}, {
+			eventosDaPasta: 0,
+			eventosDoArquivo: 2,
+			ultimoSemDepois: undefined,
+			erros: [],
+		});
+	});
+
 	test('escritas próximas entram na mesma sessão', async () => {
 		service.start();
 
