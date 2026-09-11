@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { HIDDEN_VIEW_CONTAINER_IDS, PRODUCT_SETTING_DEFAULTS } from '../../common/hiddenViews.js';
+import { HIDDEN_COMMAND_IDS, HIDDEN_VIEW_CONTAINER_IDS, PRODUCT_SETTING_DEFAULTS } from '../../common/hiddenViews.js';
 
 suite('watchCode hiddenViews', () => {
 
@@ -52,7 +52,60 @@ suite('watchCode hiddenViews', () => {
 		}
 	});
 
+	test('nao repete ids de comando', () => {
+		const unicos = new Set(HIDDEN_COMMAND_IDS);
+		assert.strictEqual(unicos.size, HIDDEN_COMMAND_IDS.length, 'a lista tem id duplicado');
+	});
+
+	test('esconde os comandos que escrevem', () => {
+		for (const esperado of [
+			'typescript.sortImports',
+			'javascript.sortImports',
+			'typescript.removeUnusedImports',
+			'javascript.removeUnusedImports',
+			'typescript.selectTypeScriptVersion',
+		]) {
+			assert.ok(HIDDEN_COMMAND_IDS.includes(esperado), `faltou esconder ${esperado}`);
+		}
+	});
+
+	test('preserva os comandos que leem', () => {
+		for (const preservado of [
+			'typescript.goToSourceDefinition',
+			'typescript.findAllFileReferences',
+			'typescript.restartTsServer',
+		]) {
+			assert.ok(!HIDDEN_COMMAND_IDS.includes(preservado), `nao deveria esconder ${preservado}`);
+		}
+	});
+
 	test('desliga as superficies de IA por padrao', () => {
 		assert.strictEqual(PRODUCT_SETTING_DEFAULTS['chat.disableAIFeatures'], true);
+	});
+
+	test('desliga a escrita do TypeScript por padrao', () => {
+		assert.deepStrictEqual({
+			validate: PRODUCT_SETTING_DEFAULTS['typescript.validate.enable'],
+			validateJs: PRODUCT_SETTING_DEFAULTS['javascript.validate.enable'],
+			suggest: PRODUCT_SETTING_DEFAULTS['typescript.suggest.enabled'],
+			suggestJs: PRODUCT_SETTING_DEFAULTS['javascript.suggest.enabled'],
+			format: PRODUCT_SETTING_DEFAULTS['typescript.format.enable'],
+			formatJs: PRODUCT_SETTING_DEFAULTS['javascript.format.enable'],
+			typeAcquisition: PRODUCT_SETTING_DEFAULTS['typescript.disableAutomaticTypeAcquisition'],
+			syntaxServer: PRODUCT_SETTING_DEFAULTS['typescript.tsserver.useSyntaxServer'],
+			wordBasedSuggestions: PRODUCT_SETTING_DEFAULTS['editor.wordBasedSuggestions'],
+			lightbulb: PRODUCT_SETTING_DEFAULTS['editor.lightbulb.enabled'],
+		}, {
+			validate: false,
+			validateJs: false,
+			suggest: false,
+			suggestJs: false,
+			format: false,
+			formatJs: false,
+			typeAcquisition: true,
+			syntaxServer: 'never',
+			wordBasedSuggestions: 'off',
+			lightbulb: 'off',
+		});
 	});
 });

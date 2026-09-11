@@ -55,6 +55,31 @@ export const HIDDEN_VIEW_IDS: readonly string[] = [
 ];
 
 /**
+ * Ids dos comandos que saem da paleta.
+ *
+ * O criterio e o mesmo das views: fica o que le, sai o que escreve. Sort Imports
+ * reordena o arquivo do agente, e escolher a versao do TypeScript e configurar
+ * a ferramenta de escrita que o produto nao oferece.
+ *
+ * Diferente das views, aqui o item e registrado mesmo quando o comando ainda
+ * nao existe: a supressao precisa estar no lugar antes de a extensao registrar
+ * o comando, senao o item implicito da paleta aparece.
+ *
+ * Esta lista e so metade da supressao. O item da paleta com when falso suprime
+ * o item IMPLICITO, que todo comando registrado ganha; se a extensao declarar a
+ * entrada em contributes.menus.commandPalette, esse item e explicito e continua
+ * aparecendo. Por isso as entradas de escrita tambem sairam do package.json da
+ * extensao: as duas metades juntas e que tiram o comando da paleta.
+ */
+export const HIDDEN_COMMAND_IDS: readonly string[] = [
+	'typescript.sortImports',
+	'javascript.sortImports',
+	'typescript.removeUnusedImports',
+	'javascript.removeUnusedImports',
+	'typescript.selectTypeScriptVersion',
+];
+
+/**
  * Valores padrao de configuracao do produto.
  *
  * Ficam como default, entao o usuario ainda pode sobrescrever. Cobrem as
@@ -65,4 +90,27 @@ export const PRODUCT_SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
 
 	// O welcomeGettingStarted continua no codigo, mas nao abre sozinho
 	'workbench.startupEditor': 'none',
+
+	// A inteligencia de codigo existe para LER o que o agente escreveu: o F12 leva
+	// a definicao e o hover mostra a assinatura. Validar, sugerir, formatar e baixar
+	// tipos sao superficies de escrita, e ficam desligadas por padrao.
+	'typescript.validate.enable': false,
+	'javascript.validate.enable': false,
+	'typescript.suggest.enabled': false,
+	'javascript.suggest.enabled': false,
+	'typescript.format.enable': false,
+	'javascript.format.enable': false,
+	'typescript.disableAutomaticTypeAcquisition': true,
+
+	// Com a validacao desligada o servidor nao emite evento de diagnostico, e sem
+	// esse evento o cliente nunca sai do estado "carregando projeto" - o que faz
+	// definicao e hover irem para o servidor sintatico, que nao tem projeto e nao
+	// responde. Um servidor so elimina o roteamento e devolve o F12.
+	'typescript.tsserver.useSyntaxServer': 'never',
+
+	// A sugestao por palavra do documento e outro provedor, nao o TypeScript
+	'editor.wordBasedSuggestions': 'off',
+
+	// A lampada abre o menu de acao rapida, que e o caminho curto para editar
+	'editor.lightbulb.enabled': 'off',
 };

@@ -57,6 +57,7 @@ const compilations = [
 	'extensions/markdown-math/tsconfig.json',
 	'extensions/search-result/tsconfig.json',
 	'extensions/terminal-suggest/tsconfig.json',
+	'extensions/typescript-language-features/tsconfig.json',
 
 	'.vscode/extensions/vscode-selfhost-test-provider/tsconfig.json',
 	'.vscode/extensions/vscode-selfhost-import-aid/tsconfig.json',

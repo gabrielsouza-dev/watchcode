@@ -4,11 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { MenuId, MenuRegistry } from '../../../../platform/actions/common/actions.js';
 import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { Extensions as ViewContainerExtensions, IViewContainersRegistry, IViewsRegistry, ViewContainer, ViewContainerLocation } from '../../../common/views.js';
-import { HIDDEN_VIEW_CONTAINER_IDS, HIDDEN_VIEW_IDS, PRODUCT_SETTING_DEFAULTS } from '../common/hiddenViews.js';
+import { HIDDEN_COMMAND_IDS, HIDDEN_VIEW_CONTAINER_IDS, HIDDEN_VIEW_IDS, PRODUCT_SETTING_DEFAULTS } from '../common/hiddenViews.js';
 
 /**
  * Remove da interface as views nativas que nao fazem parte do produto.
@@ -27,6 +29,8 @@ class HiddenViewsContribution extends Disposable implements IWorkbenchContributi
 
 		Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration)
 			.registerDefaultConfigurations([{ overrides: { ...PRODUCT_SETTING_DEFAULTS } }]);
+
+		this.hidePaletteCommands(HIDDEN_COMMAND_IDS);
 
 		const viewContainersRegistry = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry);
 		const viewsRegistry = Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry);
@@ -102,6 +106,21 @@ class HiddenViewsContribution extends Disposable implements IWorkbenchContributi
 				}
 			}
 		}));
+	}
+
+	/**
+	 * Tira da paleta os comandos de escrita, sem apagar o comando.
+	 *
+	 * A paleta recebe um item implicito para todo comando registrado
+	 * (actions.ts, _appendImplicitItems). Um item explicito com when falso entra no
+	 * conjunto de ids ja declarados e faz o implicito nao ser criado: o comando some
+	 * da lista e continua existindo para quem o chama pelo atalho.
+	 */
+	private hidePaletteCommands(ids: readonly string[]): void {
+		for (const id of ids) {
+			const command = MenuRegistry.getCommand(id) ?? { id, title: id };
+			this._register(MenuRegistry.appendMenuItem(MenuId.CommandPalette, { command, when: ContextKeyExpr.false() }));
+		}
 	}
 }
 

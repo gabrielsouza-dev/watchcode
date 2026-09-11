@@ -73,6 +73,42 @@ const NOTE_FILE = 'note.txt';
 /** Terceiro arquivo do T-0006: nomes distintos deixam claro qual linha esta selecionada. */
 const EXTRA_FILE = 'extra.txt';
 
+/** Arquivos do T-0007: um define o simbolo, o outro o importa e o usa. */
+const LIBRARY_FILE = 'biblioteca.ts';
+const CONSUMER_FILE = 'consumidor.ts';
+
+/**
+ * Conteudo de biblioteca.ts: a definicao de saudacao fica na linha 2, com o nome
+ * na coluna 17.
+ */
+const LIBRARY_CONTENT = [
+	'// Arquivo de apoio: define o simbolo que o consumidor importa.',
+	'export function saudacao(): string {',
+	"	return 'ola';",
+	'}',
+	''
+].join('\n');
+
+/**
+ * Conteudo de consumidor.ts.
+ *
+ * A ultima linha tem um erro de tipo de proposito: sem ela, "nenhum erro
+ * sublinhado" nao provaria nada, porque nao haveria erro para aparecer.
+ */
+const CONSUMER_CONTENT = [
+	"import { saudacao } from './biblioteca';",
+	'',
+	'export const mensagem = saudacao();',
+	"const quebrado: number = 'texto';",
+	''
+].join('\n');
+
+/** Posicao do uso em consumidor.ts e da definicao em biblioteca.ts. */
+const CONSUMER_LINE = 3;
+const CONSUMER_COLUMN = 25;
+const DEFINITION_LINE = 2;
+const DEFINITION_COLUMN = 17;
+
 /** Textos esperados do indicador e do tooltip, copiados da contribuição. */
 const ACTIVE_TOOLTIP = 'Watch Code is observing the workspace. Click to turn observation off.';
 const INACTIVE_TOOLTIP = 'Watch Code is not observing the workspace. Click to turn observation on.';
@@ -401,6 +437,157 @@ async function rowLabels(rows: Locator): Promise<readonly string[]> {
 	}
 
 	return labels;
+}
+
+/** Nome do arquivo do editor ativo, pelo rotulo da aba ativa. */
+async function activeEditorName(page: Page): Promise<string> {
+	const tab = page.locator('.tabs-container .tab.active').first();
+
+	if (await tab.count() === 0) {
+		return '';
+	}
+
+	return collapse(await tab.innerText());
+}
+
+/** Abre um arquivo do workspace pela busca rapida de arquivos. */
+async function openFile(page: Page, file: string): Promise<void> {
+	await page.keyboard.press('Control+P');
+	await page.locator('.quick-input-widget').first().waitFor({ state: 'visible', timeout: 15000 });
+	await page.keyboard.type(file);
+
+	// A lista refiltra a cada tecla: sem esta pausa o Enter pegaria o resultado anterior.
+	await delay(1000);
+	await page.keyboard.press('Enter');
+	await delay(1500);
+}
+
+/** Posiciona o cursor por linha e coluna, pelo proprio comando do editor. */
+async function gotoPosition(page: Page, line: number, column: number): Promise<void> {
+	await page.keyboard.press('Control+G');
+	await page.locator('.quick-input-widget').first().waitFor({ state: 'visible', timeout: 15000 });
+	await page.keyboard.type(line + ':' + column);
+	await delay(500);
+	await page.keyboard.press('Enter');
+	await delay(800);
+}
+
+/** Texto do item de posicao da barra de status, no formato "Ln 2, Col 17". */
+async function editorPosition(page: Page): Promise<string> {
+	const item = page.locator('[id="status.editor.selection"]').first();
+
+	if (await item.count() === 0) {
+		return '';
+	}
+
+	return collapse(await item.innerText());
+}
+
+/** Quantas marcas de erro ou aviso o editor esta desenhando no arquivo ativo. */
+async function editorSquiggles(page: Page): Promise<number> {
+	return await page.locator('.monaco-editor .squiggly-error, .monaco-editor .squiggly-warning').count();
+}
+
+/** Rotulo de acessibilidade do item de problemas da barra de status. */
+async function problemsLabel(page: Page): Promise<string> {
+	const item = page.locator('[id="status.problems"]').first();
+
+	if (await item.count() === 0) {
+		return 'sem item de problemas na barra';
+	}
+
+	return collapse(await item.getAttribute('aria-label') ?? '');
+}
+
+/**
+ * Abre o hover do cursor pelo comando do editor e devolve o texto mostrado.
+ *
+ * O atalho e um encadeamento (Ctrl+K Ctrl+I): as duas teclas precisam chegar em
+ * sequencia, com o editor no foco. A pausa entre elas e a nova tentativa existem
+ * porque o encadeamento as vezes se perde e o hover nao abre.
+ */
+async function hoverText(page: Page, attempts = 3): Promise<string> {
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		await page.keyboard.press('Control+K');
+		await delay(300);
+		await page.keyboard.press('Control+I');
+
+		const hover = page.locator('.monaco-hover').first();
+
+		try {
+			await hover.waitFor({ state: 'visible', timeout: 8000 });
+
+			const texto = collapse(await hover.innerText());
+
+			if (texto.length > 0) {
+				return texto;
+			}
+		} catch {
+			// Sem hover nesta tentativa: fecha o que tiver aberto e tenta de novo.
+		}
+
+		await page.keyboard.press('Escape');
+		await delay(500);
+	}
+
+	return '';
+}
+
+/** Linhas do widget de sugestao, quando ele esta aberto. */
+async function suggestionRows(page: Page): Promise<readonly string[]> {
+	if (await page.locator('.suggest-widget.visible').count() === 0) {
+		return [];
+	}
+
+	return await rowLabels(page.locator('.suggest-widget .monaco-list-row'));
+}
+
+/** Espera o indicador de versao do TypeScript, que so aparece com o servidor no ar. */
+async function typeScriptStatus(page: Page, timeoutMs = 60000): Promise<string> {
+	const deadline = Date.now() + timeoutMs;
+
+	while (Date.now() < deadline) {
+		const dedicado = page.locator('[id="typescript.version"]').first();
+
+		if (await dedicado.count() > 0) {
+			const rotulo = collapse(await dedicado.getAttribute('aria-label') ?? '');
+
+			if (rotulo.length > 0) {
+				return rotulo;
+			}
+		}
+
+		const combinado = page.locator('[id="status.languageStatus"]').first();
+
+		if (await combinado.count() > 0) {
+			const rotulo = collapse(await combinado.getAttribute('aria-label') ?? '').toLowerCase();
+
+			if (rotulo.includes('typescript')) {
+				return rotulo;
+			}
+		}
+
+		await delay(500);
+	}
+
+	return '';
+}
+
+/** Insiste numa tecla ate a condicao valer, porque o servidor leva segundos para subir. */
+async function pressUntil(page: Page, key: string, done: () => Promise<boolean>, timeoutMs = 60000): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+
+	while (Date.now() < deadline) {
+		await page.keyboard.press(key);
+
+		if (await done()) {
+			return true;
+		}
+
+		await delay(2000);
+	}
+
+	return false;
 }
 
 /** Escreve por fora do app, como faria um agente — é o estímulo de todos os testes. */
@@ -930,6 +1117,79 @@ const TESTS: readonly IManualTest[] = [
 		const ctrlClicked = await timelineSelectedNames(page);
 
 		t.check('passo 8: a seleção continua única', ctrlClicked.length === 1, 'selecionadas=' + JSON.stringify(ctrlClicked));
+	}
+},
+{
+	id: 'T-0007',
+	title: 'Leitura de código pelo F12',
+	prepare: workspace => {
+		writeWorkspaceFile(workspace, LIBRARY_FILE, LIBRARY_CONTENT);
+		writeWorkspaceFile(workspace, CONSUMER_FILE, CONSUMER_CONTENT);
+	},
+	run: async (session, t) => {
+		const page = session.page;
+
+		// Passo 1: abrir o arquivo que consome o símbolo.
+		await openFile(page, CONSUMER_FILE);
+		const opened = await activeEditorName(page);
+
+		t.check('passo 1: o consumidor abre no editor', opened === CONSUMER_FILE, 'aba ativa=' + JSON.stringify(opened));
+
+		// Passo 2: o servidor de linguagem sobe e se anuncia na barra de status.
+		const status = await typeScriptStatus(page);
+
+		t.check('passo 2: a extensão do TypeScript está ativa', status.length > 0, 'indicador=' + JSON.stringify(status));
+
+		// Passo 3: cursor sobre o símbolo usado.
+		await gotoPosition(page, CONSUMER_LINE, CONSUMER_COLUMN);
+		const beforeJump = await editorPosition(page);
+
+		t.check('passo 3: o cursor está sobre o símbolo usado', beforeJump.includes('Ln ' + CONSUMER_LINE + ','), 'posição=' + JSON.stringify(beforeJump));
+
+		// Passo 4: o F12 leva à definição, que está em outro arquivo.
+		const jumped = await pressUntil(page, 'F12', async () => await activeEditorName(page) === LIBRARY_FILE);
+		const afterJump = await activeEditorName(page);
+
+		t.check('passo 4: o F12 abre o arquivo da definição', jumped && afterJump === LIBRARY_FILE, 'aba ativa=' + JSON.stringify(afterJump));
+
+		// Passo 5: o cursor para em cima do símbolo definido.
+		const position = await editorPosition(page);
+
+		t.check('passo 5: o cursor fica na linha da definição', position.includes('Ln ' + DEFINITION_LINE + ','), 'posição=' + JSON.stringify(position) + ', esperado Ln ' + DEFINITION_LINE + ', Col ' + DEFINITION_COLUMN);
+
+		// Passo 6: o hover mostra a assinatura, que só o servidor sabe.
+		const hover = await hoverText(page);
+
+		t.check('passo 6: o hover traz a assinatura', hover.includes('saudacao') && hover.includes('string'), 'hover=' + JSON.stringify(hover.slice(0, 160)));
+
+		// Passo 7: nenhum erro sublinhado, mesmo com o erro de tipo plantado no arquivo.
+		const squiggles = await editorSquiggles(page);
+		const problemas = await problemsLabel(page);
+
+		t.check('passo 7: o editor não sublinha o erro de tipo', squiggles === 0, 'marcas=' + squiggles);
+		t.check('passo 7: a barra de status não acusa problema', !/Errors: [1-9]/.test(problemas) && !/Warnings: [1-9]/.test(problemas), 'problemas=' + JSON.stringify(problemas));
+
+		// Passo 8: o comando de escrita saiu da paleta.
+		const rows = await openCommandPalette(page, 'sort imports');
+		const labels = await rowLabels(rows);
+
+		await page.keyboard.press('Escape');
+		await delay(400);
+
+		t.check('passo 8: Sort Imports não aparece na paleta', !labels.some(label => label.toLowerCase().includes('sort imports')), 'linhas=' + JSON.stringify(labels.slice(0, 5)));
+
+		// Passo 9: digitar não abre sugestão.
+		await openFile(page, CONSUMER_FILE);
+		await page.keyboard.press('Control+End');
+		await page.keyboard.press('Enter');
+		await page.keyboard.type('sauda');
+		await delay(1500);
+		const suggestions = await suggestionRows(page);
+
+		t.check('passo 9: digitar não abre sugestão', suggestions.length === 0, 'sugestões=' + JSON.stringify(suggestions));
+
+		await page.keyboard.press('Escape');
+		await delay(300);
 	}
 },
 ];

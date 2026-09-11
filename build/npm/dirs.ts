@@ -20,6 +20,7 @@ export const dirs = [
 	'extensions/markdown-math',
 	'extensions/search-result',
 	'extensions/terminal-suggest',
+	'extensions/typescript-language-features',
 	'remote',
 	'remote/web',
 	'test/automation',
