@@ -135,6 +135,12 @@ fonte que a leitura manual consultava.
 | T-0002 | pasta sem git: a segunda escrita usa a sombra como "antes" |
 | T-0003 | watcher nativo: duas escritas separadas abrem sessões diferentes |
 | T-0004 | barra de status e Paleta de Comandos: o comando desliga, o clique religa |
+| T-0005 | a view da timeline no Explorer: o estado vazio, os botões e o estado de erro |
+| T-0006 | Anterior/Próximo pelos botões e pelas teclas, inclusive nas bordas da lista |
+| T-0007 | F12, referências, símbolos e hover — sem sugestão e sem acusar erro |
+| T-0008 | o salto ao local por F5, clique, seta, Enter e duplo clique, com o arquivo removido e a entrada histórica |
+| T-0009 | o salto com a centralização desligada: a vista não se move |
+| T-0010 | a sessão inteira: seis alterações numa sessão, o painel conferido contra o ledger e a travessia inteira pelo teclado |
 
 O Playwright comanda a interface pelo depurador do próprio app: lê o texto, o ícone
 e o rótulo de acessibilidade do indicador, passa o mouse para pegar o tooltip, abre a
@@ -145,7 +151,7 @@ cai para as coordenadas do elemento.
 
 - **Perfil e pasta novos a cada execução.** Cada teste parte do zero, então a
   contagem de eventos começa em zero sem ninguém limpar o perfil antes.
-- **Uma sonda de prontidão.** Antes de medir, o teste escreve `aquecimento.txt` e
+- **Uma sonda de prontidão.** Antes de medir, o teste escreve `aquecimento.ts` e
   espera o evento dele no ledger: escrever cedo demais produz um ledger vazio, e um
   ledger vazio não distingue observação desligada de observação que ainda não subiu.
   As conferências filtram por arquivo, então a sonda não entra na conta.

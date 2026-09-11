@@ -259,6 +259,7 @@ O critério é o tipo de acoplamento de cada módulo inútil ao produto:
 | E1-T4 | Watcher do workspace | Observação do disco, detecção de escrita externa, agrupamento por pausa e criação do evento de origem `agent` | E1-T3 | feito (85 testes no módulo; manual T-0003 aprovado em 10/09/2026 — reprovou antes, por um registro duplicado) |
 | E1-T5 | Controle de observação | Comando e indicador de estado para **ativar/desativar** a observação pela interface; desligado, nenhuma sessão é aberta; estado refletido no status | E1-T4 | feito (92 testes no módulo; manual T-0004 aprovado em 10/09/2026 e depois coberto pelo arnês, saindo do registro) |
 | E1-T6 | Fechamento da E1 | Um script (sem agente nenhum) altera arquivos e cada alteração aparece no ledger com antes/depois corretos, com a observação ligada | E1-T5 | feito (93 testes no módulo; arnês ponta a ponta em `docs/watch-code/e2e`; 2 defeitos corrigidos) |
+| E1-T7 | Pasta não é alteração | `recordChange` devolve `Promise<ChangeEvent \| undefined>`: a pasta que chega ao watcher deixa de virar erro no log | E1-T6 | pendente (defeito 3 da E1-T6, com a decisão de contrato aprovada pelo usuário em 11/09/2026) |
 
 **E1 pronta quando:** com a observação ligada, qualquer alteração feita fora da IDE — por agente, script ou terminal — vira um evento com arquivo, origem, horário e snapshots antes/depois corretos.
 
@@ -269,6 +270,13 @@ sem depois, o agrupamento em três sessões e o caminho ignorado que não vira e
 A execução encontrou dois defeitos que a suíte inteira não pegava: o git nunca era
 consultado e o "antes" não entrava no store de snapshots. Ambos corrigidos.
 
+**Aberto na E1:** um terceiro defeito ficou para depois. Quando nasce um arquivo numa
+pasta nova, a pasta também chega ao watcher, a leitura falha e o log grava
+`[watchCode] failed to record src`. O ledger fica **correto** — nenhum evento entra —,
+mas o produto escreve erro onde não houve erro. A correção mexe no contrato de
+`recordChange`, e o usuário a aprovou em 11/09/2026: é a **E1-T7**, executada como
+ciclo próprio, em High, por mudar contrato.
+
 ### Etapa E2 — Timeline e navegação
 
 | ID | Tarefa | Entregável | Depende | Status |
@@ -277,10 +285,23 @@ consultado e o "antes" não entrava no store de snapshots. Ambos corrigidos.
 | E2-T2 | View da timeline | Lista virtualizada na Activity Bar com arquivo, linhas, hora e origem; estados vazio e de erro | E2-T1 | feito (18 testes no módulo, 11 novos; manual T-0005 aprovado. A lista ficou dentro do Explorer, recolhível abaixo da árvore, e não na Activity Bar — decisão D5 do plano, tomada com o usuário) |
 | E2-T3 | Anterior/Próximo | Comandos, keybindings e seleção do evento ativo na lista | E2-T2 | feito (27 testes no módulo, 9 novos; manual T-0006 aprovado com 16 conferências. A tecla é o **F5**, com Shift+F5 para voltar — decidido com o usuário na revisão da fileira de F1 a F12) |
 | E2-T4 | Salto ao local | Abrir o arquivo, revelar e selecionar as linhas; tratar arquivo ausente e entrada `history` | E2-T3 | feito (9 testes novos no salto (`watchCode`, 30 → 39) e 12 no produtor de faixa (`changeLedger`, 112 → 124); manual T-0008 e T-0009 aprovados com 25 conferências. O campo `linesChanged` era declarado e lido e **nunca gravado** — sem ele o salto abria o arquivo e parava em `Ln 1, Col 1`; decisão do usuário antecipou um produtor mínimo no gravador, que a E3-T1 troca por hunks. Três defeitos acharam-se no caminho: as setas moviam o foco e não a seleção, o editor roubava o foco a cada salto, e a posição pedida por opção de abertura não movia a vista) |
-| E2-T5 | Fechamento da E2 | Percorrer em sequência todas as alterações de uma sessão do agente | E2-T4 | pendente |
+| E2-T5 | Fechamento da E2 | Percorrer em sequência todas as alterações de uma sessão do agente | E2-T4 | feito (manual T-0010 aprovado com 24 conferências: seis alterações numa sessão, em `.ts`, `.js` e `.cs`, com uma criação e uma remoção; o painel conferido linha a linha contra o ledger, e a travessia inteira por F5 e Shift+F5, mais a segunda sessão entrando ao vivo. Nenhum defeito apareceu. A sonda do arnês virou `aquecimento.ts`, e os **dez** cenários passaram na mesma execução) |
 | E2-T6 | Novo e visualizado | Selo por alteração, gravado no próprio evento; o lote é **derivado** — fica visualizado quando todas as suas alterações estiverem | E2-T5 | pendente |
 | E2-T7 | Arquivos alterados no Explorer | Decoração nos arquivos que o agente tocou, pelo `IDecorationsService` — sem tocar no Explorer | E2-T6 | pendente |
 | E2-T8 | Só o que mudou | Esconder no Explorer os arquivos que o agente não tocou, com o atalho **F7**; a view própria é a opção recomendada sobre o gancho no core do Explorer | E2-T7 | pendente |
+
+**E2 pronta quando:** o desenvolvedor vê a linha do tempo das alterações do agente e vai
+de qualquer uma delas ao arquivo e à linha alterada, numa única ação.
+
+**Provado na E2-T5:** com o app aberto, seis alterações escritas de fora — em `.ts`, `.js`
+e `.cs`, em duas pastas, com uma criação e uma remoção — viraram **uma sessão só** no
+ledger, e o painel mostrou exatamente os mesmos eventos, na mesma ordem, com a mesma pasta,
+faixa de linhas, hora e origem de cada um. O **F5** percorreu a sessão inteira e o
+**Shift+F5** voltou, com o editor caindo na linha alterada a cada passo e o arquivo removido
+avisando em vez de abrir. Uma segunda escrita, no mesmo app, entrou no fim da lista ao vivo,
+sem mexer nas anteriores, e rebaixou a entrada antiga do arquivo a `history` — que continua
+navegável, parando na última linha quando o trecho já não existe (a pendência do T-0008,
+com o aviso reservado à E5-T1). As **dez** execuções do arnês de testes manuais passaram.
 
 ### Etapa E3 — Diff, cores e modos
 

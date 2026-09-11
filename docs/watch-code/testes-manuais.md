@@ -990,4 +990,119 @@ Os dois valores da configuração ficam assim comprovados na janela: com o padr�
 **aprovado.**
 
 
+## T-0010 — Sessão inteira percorrida
+
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | **E2-T5 — Fechamento da E2** |
+| Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0010` |
+
+### Objetivo
+
+Provar que uma **sessão inteira** de alterações do agente é navegável do começo ao
+fim, e que o painel mostra exatamente o que o ledger gravou. O T-0008 provou cada
+gesto do salto com dois arquivos e poucos eventos; o `run-e2e.ts` provou o ledger no
+disco, sem interface. O que nenhum dos dois provava é a travessia: a lista inteira,
+linha a linha, conferida contra a fonte de verdade.
+
+Um teste automatizado não cobre isto porque a lista é **virtualizada** — só algumas
+linhas existem no DOM por vez —, o app precisa estar montado, e o caminho medido é o
+do usuário: a tecla, o arquivo que abre e a linha em que o cursor para.
+
+### Pré-condições
+
+- Build atualizado: `npm run transpile-client` (o arnês aborta se o `out/` estiver
+  mais velho que `src/vs/workbench/contrib/watchCode/browser`).
+- `git` disponível no PATH: o "antes" da primeira alteração de cada arquivo vem do
+  `HEAD`.
+- Nada mais: a pasta observada e o perfil isolado são criados pelo próprio arnês, em
+  `%TEMP%/watchcode-manual/t-0010`.
+
+### Passos
+
+1. Prepare a pasta observada com cinco arquivos commitados: `src/alvo.ts` (200
+   linhas), `src/apoio.js` (120), `src/servico.cs` (80), `src/modulo/indice.ts` (40)
+   e `src/legado.js` (5). A subpasta `src/modulo` já existe no commit.
+2. Abra a IDE nessa pasta, com perfil próprio, e confirme a observação ligada pela
+   sonda: escreva `aquecimento.ts` e espere o evento dele no ledger.
+3. Com o app aberto, escreva de fora — como faria um agente — seis alterações em
+   sequência, com cerca de 400 ms entre elas: linha 100 do `alvo.ts`, linha 60 do
+   `apoio.js`, linha 30 do `servico.cs`, linha 25 do `indice.ts`, o arquivo novo
+   `src/modulo/regra.ts` com 12 linhas, e a remoção do `src/legado.js`.
+4. Espere o ledger sossegar: sete eventos — a sonda e as seis alterações —, todos os
+   seis na mesma sessão.
+5. Selecione a primeira linha da timeline e percorra a lista apertando **F5** uma vez
+   por evento. A cada passo, confira o nome do arquivo e a segunda faixa da linha
+   (pasta, linhas, hora e origem) contra o evento correspondente do ledger, e confira
+   o arquivo aberto e a posição do cursor.
+6. Percorra de volta com **Shift+F5** e confira a ordem inversa.
+7. Espere mais de 3 s e reescreva `src/alvo.ts` com 5 linhas de conteúdo.
+8. Confira a lista de novo: oito linhas, a nova no fim, as sete anteriores
+   inalteradas. Suba com **F5** até a entrada antiga do `alvo.ts`.
+
+### Resultado esperado
+
+- Passo 4: os seis eventos compartilham a sessão, e cada um tem a faixa esperada —
+  `100`, `60`, `30`, `25`, `1-12` para o arquivo novo e nenhuma faixa para a remoção.
+- Passo 5: cada passo seleciona a linha do evento, com a segunda faixa idêntica à do
+  ledger; o editor abre o arquivo do evento e o cursor para na última linha da faixa
+  (`Ln 100`, `Ln 60`, `Ln 30`, `Ln 25`, `Ln 12`, `Ln 1` para a sonda). Na remoção,
+  nada abre e aparece o aviso "This change removed the file. Nothing to open.".
+- Passo 6: a volta visita os mesmos arquivos na ordem inversa.
+- Passo 8: a entrada nova entra no fim, o ledger rebaixa a antiga a `history`, e o
+  salto até ela para na última linha do arquivo encurtado (`Ln 6`), **sem aviso** — a
+  pendência registrada no T-0008, cujo aviso é escopo da E5-T1.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 11/09/2026. As 24
+conferências do cenário, e as do arnês inteiro logo depois:
+
+```text
+T-0010 — Sessao inteira percorrida
+      janela montada em 14s
+      ledger: C:\Users\Gabriel S\AppData\Local\Temp\watchcode-manual\t-0010\user-data\User\workspaceStorage\cc6c077fb4771ae02eb9502db02675df\changeLedger
+      observacao de pe: a sonda foi registrada em 2026-09-11T18:56:00.826Z
+  ok    fase 1: o ledger tem a sonda e as seis alteracoes — eventos=7 primeiro="aquecimento.ts"
+  ok    fase 1: a sonda usa extensao de codigo — sonda=aquecimento.ts
+  ok    fase 1: as seis alteracoes estao na mesma sessao — sessoes=1
+  ok    fase 1: cada alteracao tem a faixa de linhas esperada — faixas=["alvo.ts=100","apoio.js=60","servico.cs=30","indice.ts=25","regra.ts=1-12","legado.js="]
+  ok    ida 1: a linha e a do evento do ledger — linha="aquecimento.ts | 1 · 15:56 · Disk" evento="aquecimento.ts | 1 · 15:56 · Disk"
+  ok    ida 1: o cursor cai na faixa do evento — editor="aquecimento.ts" posicao="Ln 1, Col 20 (19 selected)"
+  ok    ida 2: a linha e a do evento do ledger — linha="alvo.ts | src · 100 · 15:56 · Disk" evento="alvo.ts | src · 100 · 15:56 · Disk"
+  ok    ida 2: o cursor cai na faixa do evento — editor="alvo.ts" posicao="Ln 100, Col 61 (60 selected)"
+  ok    ida 3: a linha e a do evento do ledger — linha="apoio.js | src · 60 · 15:56 · Disk" evento="apoio.js | src · 60 · 15:56 · Disk"
+  ok    ida 3: o cursor cai na faixa do evento — editor="apoio.js" posicao="Ln 60, Col 44 (43 selected)"
+  ok    ida 4: a linha e a do evento do ledger — linha="servico.cs | src · 30 · 15:56 · Disk" evento="servico.cs | src · 30 · 15:56 · Disk"
+  ok    ida 4: o cursor cai na faixa do evento — editor="servico.cs" posicao="Ln 30, Col 66 (65 selected)"
+  ok    ida 5: a linha e a do evento do ledger — linha="indice.ts | src/modulo · 25 · 15:56 · Disk" evento="indice.ts | src/modulo · 25 · 15:56 · Disk"
+  ok    ida 5: o cursor cai na faixa do evento — editor="indice.ts" posicao="Ln 25, Col 59 (58 selected)"
+  ok    ida 6: a linha e a do evento do ledger — linha="regra.ts | src/modulo · 1-12 · 15:56 · Disk" evento="regra.ts | src/modulo · 1-12 · 15:56 · Disk"
+  ok    ida 6: o cursor cai na faixa do evento — editor="regra.ts" posicao="Ln 12, Col 35 (401 selected)"
+  ok    ida 7: a linha e a do evento do ledger — linha="legado.js | src · 15:56 · Disk" evento="legado.js | src · 15:56 · Disk"
+  ok    ida 7: o arquivo removido avisa em vez de abrir — editor="regra.ts" avisos=["This change removed the file. Nothing to open."]
+  ok    volta: o Shift+F5 percorre a mesma lista ao contrario — volta=["legado.js","regra.ts","indice.ts","servico.cs","apoio.js","alvo.ts","aquecimento.ts"]
+  ok    fase 2: a entrada antiga do alvo vira historica — antiga=history nova=current
+  ok    fase 2: a alteracao nova entra no fim da lista — lista=["aquecimento.ts","alvo.ts","apoio.js","servico.cs","indice.ts","regra.ts","legado.js","alvo.ts"]
+  ok    fase 2: as linhas anteriores continuam iguais, na mesma ordem — antes=["aquecimento.ts | 1 · 15:56 · Disk","alvo.ts | src · 100 · 15:56 · Disk","apoio.js | src · 60 · 15:56 · Disk","servico.cs | src · 30 · 15:56 · Disk","indice.ts | src/modulo · 25 · 15:56 · Disk","regra.ts | src/modulo · 1-12 · 15:56 · Disk","legado.js | src · 15:56 · Disk"]
+  ok    fase 2: a entrada antiga para na ultima linha do arquivo encurtado — posicao="Ln 6, Col 1" linhas do arquivo=6
+  ok    fase 2: o salto para a entrada antiga nao avisa — avisos=[]
+
+veredito: PASSOU (10 testes manuais)
+```
+
+O cenário rodou duas vezes e passou nas duas: sozinho (`T-0010`) e na execução do
+arnês inteiro, que é a que está acima — os **dez** testes manuais passaram na mesma
+execução. A travessia é a prova que faltava: a lista mostrou exatamente os eventos do
+ledger, na mesma ordem, com a mesma pasta, faixa de linhas, hora e origem, e o editor
+parou na linha de cada um.
+
+Na primeira execução, sozinha, apareceu junto a notificação "Extension host did not
+start in 10 seconds, that might be a problem." — aviso do perfil isolado recém-criado,
+sem relação com a linha do tempo; na execução registrada acima ele não apareceu.
+
+### Situação
+
+**aprovado.**
+
 

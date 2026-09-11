@@ -34,6 +34,7 @@ Regra da E0: **baixo acoplamento apaga, alto acoplamento esconde.**
 - **E1-T4** Watcher do workspace — escrita externa, agrupamento por pausa
 - **E1-T5** Controle de observação — ativar/desativar pela interface, com indicador de estado
 - **E1-T6** Fechamento — com a observação ligada, um script altera arquivos e o ledger fica correto
+- **E1-T7** Pasta não é alteração — a pasta que chega ao watcher deixa de virar erro no log (registrada depois do fechamento da etapa; contrato aprovado em 11/09/2026)
 
 ### E2 · Timeline e navegação
 
