@@ -9,6 +9,7 @@ import { Disposable } from '../../../base/common/lifecycle.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import { ChangeEvent, ChangeEventStatus } from './changeEvent.js';
 import { compareEvents, IChangeLedgerService, IRecordEventResult } from './changeLedgerService.js';
+import { isUnviewed, ITimelineSummary, summarizeTimeline } from './timelineSummary.js';
 
 export const ITimelineService = createDecorator<ITimelineService>('timelineService');
 
@@ -41,6 +42,19 @@ export interface ITimelineService {
 
 	/** Avisa quando a linha do tempo muda. */
 	readonly onDidChange: Event<ITimelineChange>;
+
+	/** Resumo do que a lista tem: é o que alimenta o contador do título. */
+	getSummary(): Promise<ITimelineSummary>;
+
+	/**
+	 * Marca a alteração como visualizada e mantém a lista em memória coerente.
+	 *
+	 * Devolve o evento como ficou, ou `undefined` quando o id não existe.
+	 */
+	markViewed(eventId: string): Promise<ChangeEvent | undefined>;
+
+	/** Avisa quando uma alteração foi marcada como visualizada. */
+	readonly onDidMarkViewed: Event<ChangeEvent>;
 }
 
 /**
@@ -56,6 +70,10 @@ export class TimelineService extends Disposable implements ITimelineService {
 
 	private readonly _onDidChange = this._register(new Emitter<ITimelineChange>());
 	readonly onDidChange = this._onDidChange.event;
+
+	/** O aviso da marca: sai uma vez por alteração marcada. */
+	private readonly _onDidMarkViewed = this._register(new Emitter<ChangeEvent>());
+	readonly onDidMarkViewed = this._onDidMarkViewed.event;
 
 	/** Eventos do ledger, em ordem cronológica crescente. */
 	private entries: ChangeEvent[] | undefined;
@@ -84,6 +102,30 @@ export class TimelineService extends Disposable implements ITimelineService {
 
 	async getEvent(eventId: string): Promise<ChangeEvent | undefined> {
 		return withDerivedStatus(await this.load()).find(event => event.id === eventId);
+	}
+
+	async getSummary(): Promise<ITimelineSummary> {
+		return summarizeTimeline(await this.load());
+	}
+
+	async markViewed(eventId: string): Promise<ChangeEvent | undefined> {
+		const current = (await this.load()).find(event => event.id === eventId);
+
+		// Sem evento, ou com ele já visto, não há o que gravar: quem já olhou não paga escrita.
+		if (!current || !isUnviewed(current)) {
+			return current;
+		}
+
+		const viewed = await this.ledger.markViewed(eventId, Date.now());
+
+		if (!viewed) {
+			return undefined;
+		}
+
+		this.replace(viewed);
+		this._onDidMarkViewed.fire(viewed);
+
+		return viewed;
 	}
 
 	/** Lê o ledger na primeira consulta e mantém a lista em memória. */
@@ -124,6 +166,21 @@ export class TimelineService extends Disposable implements ITimelineService {
 		this.loading = undefined;
 
 		return this.entries;
+	}
+
+	/** Troca a entrada de um evento na lista em memória, sem mexer na ordem. */
+	private replace(event: ChangeEvent): void {
+		const entries = this.entries;
+
+		if (!entries) {
+			return;
+		}
+
+		const index = entries.findIndex(entry => entry.id === event.id);
+
+		if (index >= 0) {
+			entries[index] = event;
+		}
 	}
 
 	/** Põe o evento gravado na lista em memória e avisa quem observa. */

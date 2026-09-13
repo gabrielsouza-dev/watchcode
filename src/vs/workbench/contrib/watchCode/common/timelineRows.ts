@@ -5,6 +5,7 @@
 // allow-any-unicode-comment-file -- comentarios em portugues usam acentuacao.
 
 import { ChangeEvent, ChangeEventAttribution, ChangeLineRange } from '../../../../platform/changeLedger/common/changeEvent.js';
+import { isUnviewed } from '../../../../platform/changeLedger/common/timelineSummary.js';
 
 /**
  * Linha pronta para desenhar.
@@ -27,6 +28,8 @@ export interface TimelineRow {
 	readonly fullTime: string;
 	/** Como o evento foi obtido: e a "origem" mostrada na linha. */
 	readonly attribution: ChangeEventAttribution;
+	/** Verdadeiro enquanto o desenvolvedor não foi até esta alteração. */
+	readonly unviewed: boolean;
 }
 
 /** Converte os eventos do ledger nas linhas da lista, na ordem em que chegaram. */
@@ -42,7 +45,8 @@ export function buildTimelineRows(events: readonly ChangeEvent[]): TimelineRow[]
 			lines: formatLineRanges(event.linesChanged),
 			clock: formatClockTime(event.timestamp),
 			fullTime: formatFullTime(event.timestamp),
-			attribution: event.attribution
+			attribution: event.attribution,
+			unviewed: isUnviewed(event)
 		};
 	});
 }

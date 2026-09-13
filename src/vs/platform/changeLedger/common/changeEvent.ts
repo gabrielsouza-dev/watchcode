@@ -63,4 +63,11 @@ export interface ChangeEvent {
 	/** Epoch em milissegundos. */
 	readonly timestamp: number;
 	readonly status: ChangeEventStatus;
+	/**
+	 * Instante em que o desenvolvedor foi até esta alteração.
+	 *
+	 * Ausente é "ninguém olhou ainda". É o único campo do evento que a leitura do
+	 * desenvolvedor escreve: todo o resto vem da observação do disco.
+	 */
+	readonly viewedAt?: number;
 }

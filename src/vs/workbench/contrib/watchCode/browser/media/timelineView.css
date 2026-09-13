@@ -46,6 +46,21 @@
 	white-space: nowrap;
 }
 
+/*
+ * O ponto da alteracao nova.
+ *
+ * Escondido sem sair do layout: o espaco fica reservado em toda linha, para os
+ * icones dos arquivos ficarem alinhados entre as vistas e as novas.
+ */
+.watch-code-timeline .watch-code-timeline-row .top .badge {
+	font-size: 9px;
+	color: var(--vscode-editorInfo-foreground);
+}
+
+.watch-code-timeline .watch-code-timeline-row .top .badge.hidden {
+	visibility: hidden;
+}
+
 .watch-code-timeline .watch-code-timeline-row .detail {
 	overflow: hidden;
 	text-overflow: ellipsis;

@@ -41,6 +41,7 @@ import { IEditorControl } from '../../../common/editor.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { planReveal, RevealMissReason } from '../common/changeReveal.js';
+import { formatUnviewedBatches } from '../common/timelineBadge.js';
 import { NavigationDirection, stepActiveId } from '../common/timelineNavigation.js';
 import { buildTimelineRows, TimelineRow } from '../common/timelineRows.js';
 import { CENTER_ON_REVEAL_SETTING } from './timelineConfiguration.contribution.js';
@@ -56,6 +57,9 @@ const ERROR_MESSAGE = localize('watchCode.timeline.error', "The timeline could n
 
 /** Separador dos trechos da segunda faixa da linha. */
 const DETAIL_SEPARATOR = ' \u00b7 ';
+
+/** Texto do selo da alteração que o desenvolvedor ainda não viu. */
+const NEW_CHANGE_LABEL = localize('watchCode.timeline.unviewed', "Not viewed yet");
 
 /**
  * Diz se ha alteracoes na linha do tempo.
@@ -88,11 +92,16 @@ function tooltipFor(row: TimelineRow): string {
 
 	parts.push(originLabel(row.attribution));
 
+	if (row.unviewed) {
+		parts.push(NEW_CHANGE_LABEL);
+	}
+
 	return parts.join('\n');
 }
 
 interface ITimelineRowTemplate {
 	readonly hover: IManagedHover;
+	readonly badge: HTMLElement;
 	readonly icon: HTMLElement;
 	readonly name: HTMLElement;
 	readonly detail: HTMLElement;
@@ -110,6 +119,7 @@ class TimelineRowRenderer implements IListRenderer<TimelineRow, ITimelineRowTemp
 	renderTemplate(container: HTMLElement): ITimelineRowTemplate {
 		const row = append(container, $('.watch-code-timeline-row'));
 		const top = append(row, $('.top'));
+		const badge = append(top, $('span.badge'));
 		const icon = append(top, $('span.icon'));
 		const name = append(top, $('span.name'));
 		const detail = append(row, $('.detail'));
@@ -117,11 +127,14 @@ class TimelineRowRenderer implements IListRenderer<TimelineRow, ITimelineRowTemp
 		// O hover e criado com a linha e so troca de conteudo a cada evento.
 		const hover = this.hoverService.setupManagedHover(getDefaultHoverDelegate('mouse'), row, '');
 
-		return { hover, icon, name, detail };
+		return { hover, badge, icon, name, detail };
 	}
 
 	renderElement(element: TimelineRow, _index: number, templateData: ITimelineRowTemplate): void {
 		templateData.icon.className = 'icon ' + ThemeIcon.asClassName(Codicon.file);
+		// O ponto é escondido sem sair do layout: assim os ícones dos arquivos
+		// continuam alinhados entre as linhas vistas e as novas.
+		templateData.badge.className = 'badge ' + ThemeIcon.asClassName(Codicon.circleFilled) + (element.unviewed ? '' : ' hidden');
 		templateData.name.textContent = element.fileName;
 		templateData.detail.textContent = describeRow(element);
 		templateData.hover.update(tooltipFor(element));
@@ -151,7 +164,13 @@ class TimelineAccessibilityProvider implements IListAccessibilityProvider<Timeli
 	}
 
 	getAriaLabel(element: TimelineRow): string {
-		return localize('watchCode.timelineRowAriaLabel', "{0}, {1}, {2}", element.fileUri, element.fullTime, originLabel(element.attribution));
+		const parts = [localize('watchCode.timelineRowAriaLabel', "{0}, {1}, {2}", element.fileUri, element.fullTime, originLabel(element.attribution))];
+
+		if (element.unviewed) {
+			parts.push(NEW_CHANGE_LABEL);
+		}
+
+		return parts.join(', ');
 	}
 }
 
@@ -216,6 +235,12 @@ export class WatchCodeTimelineView extends ViewPane {
 		// A escuta nasce aqui, e nao no corpo: evento gravado antes de a view ser
 		// desenhada nao pode se perder.
 		this._register(this.timelineService.onDidChange(change => this.onDidRecord(change.added)));
+		this._register(this.timelineService.onDidMarkViewed(event => this.onMarkedViewed(event)));
+
+		// A lista e lida ja na construcao, e nao so quando o corpo aparece: a view nasce
+		// recolhida, e ai o contador do titulo e a unica coisa que se ve — ele precisa
+		// acompanhar o que chega mesmo sem a lista aberta.
+		void this.load();
 
 		this.hasEvents = TIMELINE_HAS_EVENTS.bindTo(contextKeyService);
 		this._register(toDisposable(() => this.hasEvents.reset()));
@@ -290,6 +315,7 @@ export class WatchCodeTimelineView extends ViewPane {
 			this.loaded = true;
 			this.renderState();
 			this.syncSelection();
+			void this.refreshTitle();
 		} catch {
 			// A proxima tentativa volta ao disco: o servico limpa o estado de carga
 			// quando a leitura falha (E2-T1), entao tentar de novo e so perguntar.
@@ -329,6 +355,7 @@ export class WatchCodeTimelineView extends ViewPane {
 		this.rows.push(...rows);
 		this.list?.splice(this.list.length, 0, rows);
 		this.renderState();
+		void this.refreshTitle();
 	}
 
 	/** Guarda o evento inteiro por id: a linha e derivada dele, nao o substitui. */
@@ -402,7 +429,41 @@ export class WatchCodeTimelineView extends ViewPane {
 		this.syncSelection();
 		this._onDidChangeActive.fire(this.events.get(id));
 
+		// Ir até a alteração é o que a marca como vista: um ponto de entrada só.
+		void this.markViewed(id);
 		void this.reveal(this.events.get(id), editorOptions);
+	}
+
+	/**
+	 * Grava que o desenvolvedor foi até esta alteração.
+	 *
+	 * A navegação não espera pelo selo nem depende dele: se a gravação falhar, a
+	 * alteração continua nova e a próxima visita tenta de novo.
+	 */
+	private async markViewed(id: string): Promise<void> {
+		try {
+			await this.timelineService.markViewed(id);
+		} catch {
+			// O selo é acessório ao salto: falhar aqui não muda o que o desenvolvedor vê.
+		}
+	}
+
+	/** O aviso do serviço: a linha daquela alteração perde o ponto e o título recalcula. */
+	private onMarkedViewed(event: ChangeEvent): void {
+		const index = this.rows.findIndex(row => row.id === event.id);
+
+		if (index < 0) {
+			return;
+		}
+
+		this.events.set(event.id, event);
+
+		const [row] = buildTimelineRows([event]);
+
+		this.rows[index] = row;
+		this.list?.splice(index, 1, [row]);
+
+		void this.refreshTitle();
 	}
 
 	/**
@@ -518,6 +579,23 @@ export class WatchCodeTimelineView extends ViewPane {
 			this.list.reveal(index);
 		} finally {
 			this.syncing = false;
+		}
+	}
+
+	/**
+	 * Mantém o título contando os lotes que ainda têm alteração nova.
+	 *
+	 * Sem descrição quando não há nada pendente: o cabeçalho volta a ser só o nome
+	 * da view.
+	 */
+	private async refreshTitle(): Promise<void> {
+		try {
+			const summary = await this.timelineService.getSummary();
+			const text = formatUnviewedBatches(summary.unviewedSessions);
+
+			this.updateTitleDescription(text.length > 0 ? text : undefined);
+		} catch {
+			// Sem resumo o título fica só com o nome: a lista já mostra o estado dela.
 		}
 	}
 

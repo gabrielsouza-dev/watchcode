@@ -84,6 +84,15 @@ export interface IChangeLedgerService {
 	 */
 	readCurrentUnder(folderUri: string): Promise<readonly ChangeEvent[]>;
 
+	/**
+	 * Marca uma alteração como visualizada, gravando o instante no próprio evento.
+	 *
+	 * Não é alteração observada: o aviso de gravação (`onDidRecord`) não sai daqui.
+	 * Evento já marcado volta como está, sem nova escrita — o mesmo F5 repetido não
+	 * gera escrita. Evento inexistente devolve `undefined`.
+	 */
+	markViewed(eventId: string, timestamp: number): Promise<ChangeEvent | undefined>;
+
 	/** Guarda o conteúdo de um arquivo e devolve o hash. */
 	recordSnapshot(content: VSBuffer): Promise<string>;
 
@@ -207,6 +216,21 @@ export class ChangeLedgerService extends Disposable implements IChangeLedgerServ
 		}
 
 		return events.sort(compareEvents);
+	}
+
+	async markViewed(eventId: string, timestamp: number): Promise<ChangeEvent | undefined> {
+		const event = await this.readById(eventId);
+
+		// Sem evento, ou com ele já visto, não há o que gravar: a marca é do primeiro olhar.
+		if (!event || event.viewedAt !== undefined) {
+			return event;
+		}
+
+		const viewed = { ...event, viewedAt: timestamp };
+
+		await this.writeEvent(viewed);
+
+		return viewed;
 	}
 
 	recordSnapshot(content: VSBuffer): Promise<string> {
