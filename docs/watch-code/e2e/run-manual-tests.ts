@@ -308,12 +308,47 @@ const CHANGED_REMOVED_CONTENT = 'function apagado() {\n\treturn 4;\n}\n';
 const CHANGED_CLEAN_CONTENT = 'namespace WatchCode {\n\tpublic static class Parado {\n\t}\n}\n';
 const CHANGED_QUIET_CONTENT = 'namespace WatchCode {\n\tpublic static class Durante {\n\t}\n}\n';
 
+/**
+ * Arquivos de T-0015: um com dez linhas, para que duas alteracoes **distantes** caiam
+ * em faixas separadas, e um de seis linhas em que a segunda linha anda para o fim —
+ * um bloco movido, que o diff le como remocao mais insercao.
+ */
+const DIFF_TS_FILE = 'distante.ts';
+const DIFF_JS_FILE = 'movido.js';
+const DIFF_TS_TOTAL = 10;
+const DIFF_JS_TOTAL = 6;
+
+/** As duas linhas que a escrita de fora altera, longe uma da outra. */
+const DIFF_CHANGED_LINES: readonly number[] = [2, 8];
+
+/** Conteudo do distante.ts no HEAD: nenhuma linha alterada. */
+const DIFF_TS_HEAD_CONTENT = numberedLines(DIFF_TS_TOTAL);
+
+/** Escrita de fora: as linhas 2 e 8 mudam, e o trecho entre elas nao. */
+const DIFF_TS_CONTENT = numberedLines(DIFF_TS_TOTAL, DIFF_CHANGED_LINES);
+
+/** Conteudo do movido.js no HEAD: a linha 2 e a que anda. */
+const DIFF_JS_HEAD_CONTENT = numberedLines(DIFF_JS_TOTAL);
+
+/** Depois: a linha 2 sai do lugar e entra antes da ultima. */
+const DIFF_JS_MOVED_CONTENT = [
+	'const valor1 = 1;',
+	'const valor3 = 3;',
+	'const valor4 = 4;',
+	'const valor5 = 5;',
+	'const valor2 = 2;',
+	'const valor6 = 6;'
+].join('\n') + '\n';
+
 /** Cabecalho da view do so o que mudou. */
 const CHANGED_ONLY_HEADER_SELECTOR = '.pane-header:has-text("Changed Only")';
 
 /** Linhas da arvore do so o que mudou, e a linha que esta com o foco do teclado. */
 const CHANGED_ROW_SELECTOR = '.watch-code-changed-only .watch-code-changed-row';
 const CHANGED_FOCUSED_ROW_SELECTOR = '.watch-code-changed-only .monaco-list-row.focused';
+
+/** Linhas da lista da timeline: e nelas que a faixa de linhas aparece. */
+const TIMELINE_ROW_SELECTOR = '.watch-code-timeline .watch-code-timeline-row';
 
 /** Recorte da arvore de arquivos: as linhas visiveis do Explorer. */
 const EXPLORER_ROW_SELECTOR = '.explorer-folders-view .monaco-list-row';
@@ -331,6 +366,23 @@ type Linguagem = 'ts' | 'js' | 'cs';
  * numa linha diferente: com a linha fixa, um salto que sempre caisse no mesmo
  * lugar passaria despercebido.
  */
+/**
+ * Um arquivo com uma declaracao por linha, todas iguais menos as marcadas.
+ *
+ * As linhas alteradas sao parametro porque o T-0015 precisa de duas alteracoes
+ * **distantes**: e a distancia entre elas que separa um diff por hunks de uma faixa
+ * unica cobrindo tudo o que ha entre as duas pontas.
+ */
+function numberedLines(total: number, alteradas: readonly number[] = []): string {
+	const linhas: string[] = [];
+
+	for (let numero = 1; numero <= total; numero++) {
+		linhas.push(alteradas.includes(numero) ? 'const valor' + numero + ' = 0; // alterado pelo agente' : 'const valor' + numero + ' = ' + numero + ';');
+	}
+
+	return linhas.join('\n') + '\n';
+}
+
 function longContent(linguagem: Linguagem, alterada: boolean, linha = TARGET_LINE, total = LONG_FILE_LINES): string {
 	const linhas: string[] = [];
 
@@ -403,6 +455,39 @@ async function timelineRowNames(page: Page): Promise<readonly string[]> {
 /** A segunda faixa de cada linha, na ordem. */
 async function timelineRowDetails(page: Page): Promise<readonly string[]> {
 	return await page.locator('.watch-code-timeline .watch-code-timeline-row .detail').allTextContents();
+}
+
+/**
+ * O tooltip da linha da lista, quando ele aparece.
+ *
+ * O produto usa o hover do proprio VS Code, que nao publica o texto em atributo
+ * nenhum: a leitura e do balao, depois de o mouse passar pela linha.
+ */
+async function timelineRowTooltip(page: Page, index: number, timeoutMs = 10000): Promise<string> {
+	const linha = page.locator(TIMELINE_ROW_SELECTOR).nth(index);
+
+	await page.mouse.move(0, 0);
+	await delay(300);
+
+	try {
+		await linha.hover({ timeout: 3000 });
+	} catch {
+		const caixa = await linha.boundingBox();
+
+		if (caixa) {
+			await page.mouse.move(caixa.x + caixa.width / 2, caixa.y + caixa.height / 2);
+		}
+	}
+
+	const balao = page.locator('.monaco-hover').filter({ hasText: 'Lines' }).first();
+
+	try {
+		await balao.waitFor({ state: 'visible', timeout: timeoutMs });
+	} catch {
+		return '';
+	}
+
+	return collapse(await balao.innerText());
 }
 
 /** Espera a linha de um arquivo aparecer e devolve a posição dela. */
@@ -1266,6 +1351,18 @@ async function walkForward(page: Page, rows: number): Promise<readonly ITimeline
 }
 
 /** Texto do item de posicao da barra de status, no formato "Ln 2, Col 17". */
+/**
+ * Quantos caracteres a selecao do editor tem, pelo proprio rotulo da barra.
+ *
+ * Serve para distinguir a primeira faixa de uma alteracao da faixa unica que
+ * cobriria tudo o que ha entre duas alteracoes distantes.
+ */
+function selectedLengthOf(position: string): number {
+	const selecao = /\((\d+) selected\)/.exec(position);
+
+	return selecao ? Number(selecao[1]) : 0;
+}
+
 async function editorPosition(page: Page): Promise<string> {
 	const item = page.locator('[id="status.editor.selection"]').first();
 
@@ -2854,6 +2951,72 @@ let abriu = 'ja estava aberta';
 		t.check('medicao (nao reprova): linhas da arvore, tooltip e o comando na Paleta', true, 'arquivos=' + JSON.stringify(desenhados.map(stateOfChangedRow)) + ' pastas=' + JSON.stringify((await changedRows(page)).filter(row => row.folder).map(row => row.name)) + ' tooltip=' + JSON.stringify(await changedRowTooltip(page, WARM_UP_FILE)) + ' paleta=' + JSON.stringify(rotulos.slice(0, 2)));
 	}
 },
+	{
+		id: 'T-0015',
+		title: 'Calculo de diff por hunks',
+		// O commit da versao anterior dos dois arquivos e o "antes" do diff: sem ele o
+		// evento nasce parcial e nao tem faixa nenhuma para conferir.
+		prepare: workspace => commitWorkspace(workspace, [
+			[DIFF_TS_FILE, DIFF_TS_HEAD_CONTENT],
+			[DIFF_JS_FILE, DIFF_JS_HEAD_CONTENT]
+		]),
+		run: async (session, t) => {
+			const page = session.page;
+			const workspace = session.paths.workspace;
+
+			// A sonda de aquecimento garante a observacao viva antes de medir.
+			await waitForTimelineRow(page, WARM_UP_FILE);
+			await waitUntilQuiet(session.ledger);
+
+			if (!await timelineExpanded(page)) {
+				await toggleTimelineView(page);
+			}
+
+			// Fase 1: duas alteracoes distantes no mesmo arquivo. O produtor provisorio da
+			// E2-T4 devolvia **uma** faixa, cobrindo da linha 2 a 8; o diff por hunks
+			// devolve duas, e e essa a diferenca que a linha do tempo tem de mostrar.
+			writeWorkspaceFile(workspace, DIFF_TS_FILE, DIFF_TS_CONTENT);
+			await waitUntilQuiet(session.ledger);
+
+			const eventosDistante = session.ledger.eventsOf(DIFF_TS_FILE);
+			const distante = eventosDistante[eventosDistante.length - 1];
+			const indice = await waitForTimelineRow(page, DIFF_TS_FILE);
+			const detalhe = (await timelineRowDetails(page))[indice] ?? '';
+
+			t.check('fase 1: o evento tem as duas alteracoes como faixas separadas', lineRangesOf(distante) === '2, 8', 'faixas=' + JSON.stringify(lineRangesOf(distante)) + ' evento=' + JSON.stringify(distante.linesChanged));
+			t.check('fase 1: as faixas sao as linhas alteradas', JSON.stringify(distante.linesChanged) === JSON.stringify([[2, 2], [8, 8]]), 'faixas=' + JSON.stringify(distante.linesChanged));
+			t.check('fase 1: a linha do tempo mostra as duas faixas, e nao o trecho inteiro', detalhe.includes('2, 8') && !detalhe.includes('2-8'), 'detalhe=' + JSON.stringify(detalhe));
+			t.check('fase 1: o detalhe desenhado e o mesmo que o ledger monta', detalhe === expectedRowDetail(distante), 'desenhado=' + JSON.stringify(detalhe) + ' ledger=' + JSON.stringify(expectedRowDetail(distante)));
+
+			// Fase 2: o salto cai na primeira faixa. A selecao e a prova: a segunda faixa
+			// esta a seis linhas de distancia, e uma faixa unica selecionaria todas elas.
+			await clickTimelineRow(page, indice);
+
+			const aberto = await activeEditorName(page);
+			const posicao = await editorPosition(page);
+			const selecionados = selectedLengthOf(posicao);
+
+			t.check('fase 2: o clique abre o arquivo da alteracao', aberto.includes(DIFF_TS_FILE), 'editor=' + JSON.stringify(aberto));
+			t.check('fase 2: o cursor cai na primeira faixa, e so ela esta selecionada', posicao.startsWith('Ln 2,') && selecionados > 0 && selecionados < 100, 'posicao=' + JSON.stringify(posicao) + ' selecionados=' + selecionados);
+
+			// Fase 3: um bloco movido. O diff de linhas nao promete detectar movimentacao:
+			// a linha que anda aparece como remocao onde estava e insercao onde ficou.
+			writeWorkspaceFile(workspace, DIFF_JS_FILE, DIFF_JS_MOVED_CONTENT);
+			await waitUntilQuiet(session.ledger);
+
+			const eventosMovido = session.ledger.eventsOf(DIFF_JS_FILE);
+			const movido = eventosMovido[eventosMovido.length - 1];
+			const indiceMovido = await waitForTimelineRow(page, DIFF_JS_FILE);
+			const detalheMovido = (await timelineRowDetails(page))[indiceMovido] ?? '';
+
+			t.check('fase 3: o bloco movido vira duas faixas, remocao e insercao', lineRangesOf(movido) === '2, 5', 'faixas=' + JSON.stringify(lineRangesOf(movido)) + ' evento=' + JSON.stringify(movido.linesChanged));
+			t.check('fase 3: a linha do tempo mostra as duas faixas do bloco movido', detalheMovido.includes('2, 5') && !detalheMovido.includes('2-5'), 'detalhe=' + JSON.stringify(detalheMovido));
+
+			// O que sobra e medicao, e nao reprova: o tooltip da linha, que monta o mesmo
+			// texto do detalhe, e o desenho inteiro da lista.
+			t.check('medicao (nao reprova): tooltip da linha', true, 'tooltip=' + JSON.stringify(await timelineRowTooltip(page, indice)) + ' detalhes=' + JSON.stringify(await timelineRowDetails(page)));
+		}
+	},
 ];
 
 /** Abre o cenário, roda o teste, fecha o app e devolve se tudo passou. */

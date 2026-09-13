@@ -153,6 +153,17 @@ suite('changeRecorderService', () => {
 		});
 	});
 
+	test('duas alterações distantes no mesmo arquivo gravam duas faixas', async () => {
+		const antes = VSBuffer.fromString('1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n');
+		const depois = VSBuffer.fromString('1\nX\n3\n4\n5\n6\n7\nY\n9\n10\n');
+
+		await fileService.writeFile(resource(FILE_URI), depois);
+
+		const event = await recordedEvent(createRecorder(() => Promise.resolve(antes)).recordChange(observedChange()));
+
+		assert.deepStrictEqual(event.linesChanged, [[2, 2], [8, 8]]);
+	});
+
 	test('a atribuição do anúncio é preservada no evento', async () => {
 		await fileService.writeFile(resource(FILE_URI), VSBuffer.fromString('depois'));
 
