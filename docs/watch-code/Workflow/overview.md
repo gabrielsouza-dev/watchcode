@@ -224,7 +224,7 @@ Só há **um** lado de código no par antes/depois: o trecho atual. O "depois" �
 
 Slug sugerido para a SPEC: o próprio id em minúsculas (ex.: `e1-t2-ledger-snapshots`).
 
-**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **158 casos no `changeLedger` e 53 no `watchCode`**.
+**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **158 casos no `changeLedger` e 66 no `watchCode`**.
 
 ### Etapa E0 — Enxugamento do fork
 
@@ -317,7 +317,7 @@ tarefa própria, se ela vier a existir.
 | E2-T5 | Fechamento da E2 | Percorrer em sequência todas as alterações de uma sessão do agente | E2-T4 | feito (manual T-0010 aprovado com 24 conferências: seis alterações numa sessão, em `.ts`, `.js` e `.cs`, com uma criação e uma remoção; o painel conferido linha a linha contra o ledger, e a travessia inteira por F5 e Shift+F5, mais a segunda sessão entrando ao vivo. Nenhum defeito apareceu. A sonda do arnês virou `aquecimento.ts`, e os **dez** cenários passaram na mesma execução) |
 | E2-T6 | Novo e visualizado | Selo por alteração, gravado no próprio evento; o lote é **derivado** — fica visualizado quando todas as suas alterações estiverem | E2-T5 | feito (5 testes novos no módulo (`watchCode`, 40 → 45) e 14 no `changeLedger` (144 → 158); manual T-0012 aprovado com 17 conferências, e o arnês inteiro com os **doze** cenários verdes. O selo é o campo `viewedAt` do próprio evento — gravado quando o desenvolvedor **vai até a alteração**, pelo mesmo ponto de entrada de toda a navegação (F5, clique, setas, Enter, duplo clique) — e o lote **não** tem campo: é derivado do `sessionId` e só fecha quando todas as alterações dele estiverem vistas. A superfície do lote é o contador no título da view (D1 = A, aprovada pelo usuário); a lista continua plana, porque agrupar por sessão é entregável da E5-T3. O Tester achou um defeito de verdade: com a view **recolhida**, que é como ela nasce, o contador não existia — a lista só era lida quando o corpo era desenhado. A carga passou para a construção da view) |
 | E2-T7 | Arquivos alterados no Explorer | Decoração nos arquivos que o agente tocou, pelo `IDecorationsService` — sem tocar no Explorer | E2-T6 | feito (8 testes novos no módulo (`watchCode`, 45 → 53); manual T-0013 aprovado com 14 conferências, e o arnês inteiro com os **treze** cenários verdes. A decoração é a **opção C**, decidida com o usuário: **cor** de "o agente tocou" em todo arquivo com alteração, e o **ponto** só enquanto houver alteração não vista. A chave é a do próprio recurso (`joinPath` da pasta do workspace com o caminho relativo do evento) e o dado é derivado da lista, sem cópia: o provedor só responde o que o Explorer pergunta. Peso explícito na decoração (1000, o mesmo do chat), porque o serviço ordena os provedores por peso — sem ele, quem venceria a cor do git seria a ordem de registro) |
-| E2-T8 | Só o que mudou | Esconder no Explorer os arquivos que o agente não tocou, com o atalho **F7**; a view própria é a opção recomendada sobre o gancho no core do Explorer | E2-T7 | pendente |
+| E2-T8 | Só o que mudou | Esconder no Explorer os arquivos que o agente não tocou, com o atalho **F7**; a view própria é a opção recomendada sobre o gancho no core do Explorer | E2-T7 | feito (13 testes novos no módulo (`watchCode`, 53 → 66); manual T-0014 aprovado com **22 conferências**, e o arnês inteiro com os **catorze** cenários verdes. A forma é a **view própria** — a árvore `Changed Only`, dentro do container do Explorer e recolhida, com o **F7** abrindo e focando e recolhendo quando já está em uso; o Explorer de verdade continua mostrando tudo, e **nenhum arquivo de `contrib/files` foi tocado**. As pastas da árvore são derivadas dos caminhos dos eventos, nunca do disco, e o nó do arquivo carrega a alteração mais recente, que é a que o salto abre. No caminho, o trecho de abertura da lista virou módulo compartilhado (`ChangeOpener`), usado pelas duas views em vez de duplicado) |
 
 **E2 pronta quando:** o desenvolvedor vê a linha do tempo das alterações do agente e vai
 de qualquer uma delas ao arquivo e à linha alterada, numa única ação.
@@ -366,6 +366,27 @@ Ficou medido também que contribuição de workbench só existe se o módulo for
 T-0013 que pegou isso. E que o Explorer **revela o arquivo ativo e abre a pasta** sozinho — o cenário
 precisou aprender isso antes de clicar, porque o clique numa pasta já aberta a recolhe. Como toda lista do
 VS Code, a árvore é virtualizada: só existe linha para o que está à vista.
+
+**Provado na E2-T8:** com o app aberto, o **F7** abriu a árvore do que mudou e o mesmo F7 a recolheu,
+devolvendo o foco ao editor. A árvore mostrou só o que o ledger conhece — o arquivo escrito antes de o app
+subir ficou de fora dela — e recebeu ao vivo, sem recarregar a janela, dois arquivos escritos de fora, um
+deles criando o nó da pasta. O clique na linha e o Enter na linha focada abriram a alteração na linha 2 com
+a faixa selecionada e gravaram o `viewedAt` no **próprio evento**, e o ponto sumiu sem o arquivo sair da
+árvore. O arquivo que o agente apagou continuou na árvore marcado como removido, e abri-lo avisou em vez de
+abrir uma aba. A conferência cruzada fechou a conta: `divergentes=[]` e `extras=[]` contra o ledger,
+arquivo por arquivo.
+
+**O que a E2-T8 deixou medido:** o **F7 é do produto fora do editor de diff** — a ligação tem peso de
+contribuição do workbench e `when: !isInDiffEditor`, então dentro do diff o VS Code segue dono da tecla
+("próxima diferença") e fora dele o comando do produto vence o "ir ao destaque de símbolo" do editor comum,
+que é o preço registrado na SPEC. Ficou medido também que o **clique é gesto de abertura** no VS Code
+(`workbench.list.openMode`): a árvore abre com um clique, com Enter e com duplo clique, igual ao Explorer —
+a decisão D7 da SPEC supunha outra coisa e foi corrigida no registro do teste. E que **recolhida não há
+linha desenhada**: a primeira execução do T-0014 reprovou duas conferências por ler a árvore com a view
+fechada, e o cenário passou a abrir antes de ler. O tooltip do produto é o `IManagedHover` do próprio
+VS Code, que não publica o texto em atributo nenhum — quem for medir tooltip em teste tem de passar o mouse
+e ler o balão. Numa das execuções do arnês inteiro o T-0010 falhou por instabilidade da máquina (o cursor
+não caiu na faixa) e passou isolado logo depois, com o mesmo código de salto.
 
 ### Etapa E3 — Diff, cores e modos
 

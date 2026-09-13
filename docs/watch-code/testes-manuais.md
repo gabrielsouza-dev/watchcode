@@ -1101,6 +1101,15 @@ Na primeira execução, sozinha, apareceu junto a notificação "Extension host 
 start in 10 seconds, that might be a problem." — aviso do perfil isolado recém-criado,
 sem relação com a linha do tempo; na execução registrada acima ele não apareceu.
 
+**Uma execução do arnês inteiro falhou nesta conferência, e o motivo era o ambiente.** Na
+validação da E2-T8, a conferência `ida 2: o cursor cai na faixa do evento` leu
+`posicao="Ln 99, Col 35"` numa das execuções do arnês — sem seleção nenhuma, que é o estado de
+um editor que ainda não recebeu a faixa. Rodado sozinho logo depois, o cenário passou inteiro,
+com `posicao="Ln 100, Col 61 (60 selected)"`. Nenhuma linha desta conferência mudou entre as
+duas execuções: elas vêm do mesmo código de salto, que a E2-T8 só extraiu para um módulo
+compartilhado. A diferença é a máquina — o arnês inteiro abre e fecha um aplicativo por cenário,
+catorze vezes na mesma sessão.
+
 ### Situação
 
 **aprovado.**
@@ -1680,6 +1689,183 @@ novo com a máquina livre, saiu com código 0. Não tem relação com esta taref
 ### Situação
 
 **aprovado.**
+
+---
+
+## T-0014 — Só o que mudou
+
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | **E2-T8 — Só o que mudou** |
+| Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0014` |
+| Situação | aprovado |
+| Data de execução | 13/09/2026 |
+
+### Objetivo
+
+Provar que o desenvolvedor consegue olhar **só o que mudou**: uma árvore com as pastas e os arquivos
+que o agente tocou, aberta por uma tecla só — o **F7** — e sem o resto do repositório no meio.
+
+O teste de unidade prova a derivação pura: quais pastas e arquivos existem a partir dos eventos, com o
+ponto de "não visto" e a marca de removido. O que ele não prova é o que só existe com a janela montada:
+que a view se registra no container do Explorer, que o **F7** abre e recolhe trocando o foco com o
+editor, que a árvore acompanha o ledger ao vivo sem recarregar a janela, que o clique e o Enter caem na
+linha alterada gravando o `viewedAt` no evento, e que o arquivo removido continua na árvore avisando em
+vez de abrir editor. Nada disso cabe em teste de unidade.
+
+### Pré-condições
+
+- Build atualizado: `npm run transpile-client` (o arnês aborta se o `out/` estiver mais velho que as
+  pastas de `src/vs` que ele acompanha).
+- O workspace e o perfil isolado são criados pelo próprio arnês, em `%TEMP%/watchcode-manual/t-0014`, já
+  com repositório git e um commit inicial de `mudado.ts` — é esse `HEAD` que dá faixa de linhas ao salto.
+- Quatro arquivos nascem no cenário, em três extensões de código: `mudado.ts` (comitado e depois
+  alterado), `pasta-e2t8/regra.js` (para haver um nó de pasta) e `apagado.js` (criado e removido durante
+  o cenário). O quarto, `parado.cs`, é escrito **antes** de o app subir, de propósito: a observação nunca
+  o leu, e ele é o controle negativo — arquivo sem evento não pode aparecer na árvore.
+- A sonda de aquecimento (`aquecimento.ts`) já está na árvore quando o cenário começa: toda conferência é
+  de estado lido, nunca de contagem contra zero.
+
+### Passos
+
+1. Abra a IDE no workspace observado, com perfil próprio, e confirme a observação pela sonda: escreva
+   `aquecimento.ts` e espere o evento dele no ledger.
+2. **Fase 0** — confira que a view **Changed Only** está na janela e nasce **recolhida**. Aperte **F7**: a
+   árvore abre, o foco vai para ela, e a sonda aparece com o ponto. `parado.cs`, que a observação nunca
+   viu, não aparece.
+3. **Fase 1** — escreva de fora, como faria um agente, `mudado.ts` e `pasta-e2t8/regra.js`. Espere o
+   ledger sossegar e confira: as duas linhas entram na árvore **sem recarregar a janela**, com o ponto, e
+   a pasta aparece com o arquivo dentro. O evento no disco continua **sem** `viewedAt`.
+4. **Fase 2** — aperte **F7** com a view em uso. Confira: a árvore recolhe e o foco sai de dentro dela.
+5. **Fase 3** — abra a árvore de novo e **clique** na linha de `mudado.ts`. Confira: o editor abre o
+   arquivo, o cursor cai na linha alterada com a faixa selecionada, o `viewedAt` foi gravado no evento e o
+   ponto some sem o arquivo sair da árvore. Feche o editor (`Ctrl+W`) e aperte **Enter** com a linha ainda
+   focada: a alteração abre de novo. Depois aperte **F7**: a árvore recolhe e o foco **volta para o
+   editor**.
+6. **Fase 4** — escreva `apagado.js` e depois apague o arquivo do disco. Confira: ele aparece na árvore
+   quando criado e **continua** nela depois de apagado, marcado como removido; abri-lo avisa em vez de
+   abrir editor.
+7. **Fase 5** — compare a árvore com o ledger: cada linha desenhada mostra o mesmo estado que o evento
+   dela, e nenhum arquivo sem evento aparece.
+8. Confira o log do perfil: nenhuma linha de erro ou aviso escrita pelo produto.
+
+### Resultado esperado
+
+- Passo 2: view recolhida, **F7** abrindo com o foco na árvore, e a árvore com `workspace` e
+  `aquecimento.ts` — sem `parado.cs`.
+- Passo 3: `mudado.ts` e `regra.js` com o ponto, a pasta `pasta-e2t8` na árvore, e `viewedAt=undefined`
+  no evento do disco.
+- Passo 4: `expandida=false` depois do F7 e o foco fora da árvore.
+- Passo 5: editor em `mudado.ts`, posição em `Ln 2` com a faixa selecionada, `viewedAt` numérico no disco,
+  a linha de volta a `visto`, o Enter reabrindo a alteração e o F7 devolvendo o foco ao editor.
+- Passo 6: `apagado.js` em `novo` quando criado e em `removido` depois de apagado, com o aviso do produto
+  ao abrir — e sem editor aberto para o arquivo que não existe mais.
+- Passo 7: nenhuma linha divergente entre árvore e ledger, e nenhum arquivo sem evento na árvore.
+- Passo 8: nenhuma linha `[error]` ou `[warning]` com o prefixo `[watchCode]` em `main.log` ou
+  `window1/renderer.log`.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 13/09/2026. As **vinte e três** conferências da
+execução — as vinte e duas do cenário e a varredura de log:
+
+```text
+T-0014 — So o que mudou
+      janela montada em 11s
+      ledger: C:\Users\Gabriel S\AppData\Local\Temp\watchcode-manual\t-0014\user-data\User\workspaceStorage\0ab066b52764e587e6710117e816ec65\changeLedger
+      observacao de pe: a sonda foi registrada em 2026-09-13T18:26:46.831Z
+  ok    fase 0: a view do so o que mudou esta na janela — cabecalhos=1
+  ok    fase 0: a view nasce recolhida — recolhida=false
+  ok    fase 0: o F7 abre a arvore e leva o foco para ela — abriu=true foco=true
+  ok    fase 0: a arvore mostra o arquivo da sonda, e nao o que o agente nunca tocou — arvore=["workspace","aquecimento.ts"]
+  ok    fase 0: o arquivo da sonda aparece com o ponto — sonda={"name":"aquecimento.ts","folder":false,"unviewed":true,"removed":false}
+  ok    fase 1: o arquivo escrito de fora entra na arvore sem recarregar a janela — mudado.ts={"name":"mudado.ts","folder":false,"unviewed":true,"removed":false} arvore=["workspace=pasta","pasta-e2t8=pasta","regra.js=novo","aquecimento.ts=novo","mudado.ts=novo"]
+  ok    fase 1: a pasta com alteracao embaixo aparece, com o arquivo dentro — pasta={"name":"pasta-e2t8","folder":true,"unviewed":false,"removed":false} regra.js={"name":"regra.js","folder":false,"unviewed":true,"removed":false}
+  ok    fase 1: o evento no disco ainda nao tem viewedAt — eventos=1 viewedAt=undefined
+  ok    fase 2: o F7 com a view em uso recolhe a arvore — foco antes=true expandida=false
+  ok    fase 2: o foco sai de dentro da arvore — foco na arvore=false
+  ok    fase 3: o clique na arvore abre o arquivo da alteracao — arvore aberta=true editor="mudado.ts"
+  ok    fase 3: o editor cai na linha alterada, com a faixa selecionada — posicao="Ln 2, Col 14 (10 selected)" esperado=Ln 2, com selecao
+  ok    fase 3: o viewedAt foi gravado no evento do disco — viewedAt=1789324044140
+  ok    fase 3: o ponto some e o arquivo continua na arvore — mudado.ts=visto
+  ok    fase 3: o Enter na linha focada abre a alteracao — antes do Enter="" depois="mudado.ts" linha focada="mudado.ts"
+  ok    fase 3: recolher com a arvore em uso devolve o foco ao editor — expandida=false foco no editor=true
+  ok    fase 4: o arquivo criado pelo agente aparece na arvore — apagado.js={"name":"apagado.js","folder":false,"unviewed":true,"removed":false}
+  ok    fase 4: o arquivo removido continua na arvore, marcado — apagado.js=removido eventos=["escrita","remocao"]
+  ok    fase 4: abrir o removido avisa em vez de abrir editor — avisos=["This change removed the file. Nothing to open."] editor="mudado.ts"
+  ok    fase 5: cada linha da arvore mostra o mesmo estado que o ledger — divergentes=[] esperado=[["aquecimento.ts","novo"],["mudado.ts","visto"],["regra.js","novo"],["apagado.js","removido"]]
+  ok    fase 5: nenhum arquivo sem alteracao aparece na arvore — extras=[] arvore=["regra.js=novo","apagado.js=removido","aquecimento.ts=novo","mudado.ts=visto"]
+  ok    medicao (nao reprova): linhas da arvore, tooltip e o comando na Paleta — arquivos=["regra.js=novo","apagado.js=removido","aquecimento.ts=novo","mudado.ts=visto"] pastas=["workspace","pasta-e2t8"] tooltip="aquecimento.ts 2026-09-13 15:26 Not viewed yet" paleta=["Watch Code: Show Only Changed Files F7","Explorer: Focus on Changed Only View similar commands"]
+  ok    log: o produto nao escreveu erro nem aviso — linhas=64 problemas=[]
+
+veredito: PASSOU (1 testes manuais)
+```
+
+O bloco acima é de uma execução do cenário sozinho. O arnês inteiro — os **catorze** cenários — foi
+executado na mesma revisão, com o T-0014 no fim da fila, e passou: `veredito: PASSOU (14 testes manuais)`.
+
+### Leitura linha a linha
+
+- A **fase 0** prova as três coisas que só existem com a janela montada: `cabecalhos=1` diz que a view
+  foi registrada no container do Explorer, `recolhida=false` diz que ela nasce fechada, e
+  `foco=true` depois do F7 diz que a tecla abre **e** leva o foco — que é o que faz a árvore ser
+  navegável pelo teclado em seguida. A árvore lida é `["workspace","aquecimento.ts"]`: a raiz é a pasta
+  do workspace, e o único arquivo é o que a observação leu. `parado.cs` não está lá.
+- A **fase 1** é a prova de que a árvore vem do serviço, e não da lista: os dois arquivos escritos de fora
+  entram com o ponto (`mudado.ts=novo`, `regra.js=novo`) sem nenhum recarregamento, e a pasta
+  `pasta-e2t8` aparece como nó — ela existe na árvore porque tem alteração embaixo, e não porque existe no
+  disco. `viewedAt=undefined` no evento confirma que nada foi marcado ainda.
+- A **fase 2** é o outro lado do F7: `foco antes=true` e `expandida=false` dizem que a mesma tecla, com a
+  view em uso, fecha a árvore; `foco na arvore=false` diz que o foco saiu junto.
+- A **fase 3** é a travessia inteira de uma alteração. `editor="mudado.ts"` com
+  `posicao="Ln 2, Col 14 (10 selected)"` é o salto da E2-T4 chegando pela árvore: a linha 2 com a faixa
+  alterada selecionada (a barra de status mostra o **fim** da seleção, não o começo). O
+  `viewedAt=1789322847094` no arquivo do evento é a marca no disco, e `mudado.ts=visto` é a linha perdendo
+  o ponto sem sair da árvore. `antes do Enter="" depois="mudado.ts"` prova que a tecla sozinha reabre a
+  alteração da linha focada, e `foco no editor=true` prova que recolher devolve o desenvolvedor para onde
+  ele estava lendo.
+- A **fase 4** é o arquivo que deixa de existir: `apagado.js=removido` com
+  `eventos=["escrita","remocao"]` mostra que a remoção **é** a alteração, e por isso o arquivo continua na
+  árvore — só marcado. O aviso `This change removed the file. Nothing to open.` com o editor ainda em
+  `mudado.ts` é a prova de que abrir um removido não abre aba vazia.
+- A **fase 5** é a conferência cruzada: `divergentes=[]` e `extras=[]` comparando a árvore inteira com o
+  ledger, arquivo por arquivo, com `esperado` e `arvore` no detalhe para a igualdade ser auditável. É a
+  conferência que sustenta a promessa da tarefa: o que está na árvore é exatamente o que mudou.
+- A **medição** guarda o que não reprova ninguém: o tooltip da linha (o caminho relativo, a data e a hora
+  da alteração mais recente e o "Not viewed yet" quando é o caso) e o comando na Paleta —
+  `Watch Code: Show Only Changed Files F7`, que é o rótulo do produto com a tecla que o produto reservou.
+
+**Sobre o que a árvore mostra:** como toda árvore do VS Code, ela é virtualizada — só existe linha para o
+que está à vista. Por isso as conferências são sobre as linhas desenhadas, e a fase 5 compara linha a
+linha em vez de comparar totais. É o mesmo limite já registrado no T-0012 e no T-0013.
+
+### Histórico de execução
+
+**Primeira execução: três conferências reprovaram, e as três eram do cenário.** Uma era a posição do
+cursor: o passo esperava `Ln 2, Col 1` e leu `Ln 2, Col 14 (10 selected)`. O produto estava certo — o
+salto seleciona a **faixa alterada inteira** (é o desenho da E2-T4), e a barra de status mostra o fim da
+seleção com o número de caracteres selecionados. A conferência passou a exigir a linha e a seleção, e não
+a coluna do começo. As outras duas eram da fase 4: o arquivo removido aparecia como `ausente` porque a
+view estava **recolhida** desde a fase 3 — e recolhida não há linha desenhada para ler. O cenário ganhou
+um ajudante (`showChangedOnly`) que abre a árvore **sem alternar** o que já está aberto; com ele, a fase
+4 lê o que precisa e as duas conferências passaram.
+
+**Segunda execução: passou inteiro, com as vinte e duas conferências.** O cenário foi ajustado, e não o
+produto: nenhuma linha de `contrib/watchCode` mudou entre as duas execuções.
+
+**O tooltip não se lê por atributo, e o balão do VS Code não é só do mouse.** A medição começou vazia
+porque o hover do produto é o `IManagedHover` do próprio VS Code, que não publica o texto em `title` nem
+em `aria-label` — ele só marca o elemento com `custom-hover="true"`. Passada a ler o balão, a primeira
+tentativa devolveu o da **linha focada** (`aquecimento.ts`), e não o da linha que o mouse apontou: o hover
+do VS Code abre no foco do teclado também, e aquele balão já estava na tela quando a medida começou. A
+medição ficou sendo a da linha da sonda — que é a linha focada, e cujo balão existe pelos dois caminhos —
+e é ela que aparece no bloco acima: `aquecimento.ts 2026-09-13 15:26 Not viewed yet`, o formato prometido
+(caminho relativo, data e hora da alteração mais recente, e o aviso de que ninguém olhou ainda).
+
+### Situação
+
+**aprovado.**
+
 
 
 
