@@ -9,6 +9,7 @@ import { Disposable } from '../../../base/common/lifecycle.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import { ChangeEvent, ChangeEventStatus } from './changeEvent.js';
 import { compareEvents, IChangeLedgerService, IRecordEventResult } from './changeLedgerService.js';
+import { normalizeFileUri } from './filePath.js';
 import { isUnviewed, ITimelineSummary, summarizeTimeline } from './timelineSummary.js';
 
 export const ITimelineService = createDecorator<ITimelineService>('timelineService');
@@ -237,9 +238,4 @@ function withDerivedStatus(events: readonly ChangeEvent[]): readonly ChangeEvent
 	});
 
 	return changed ? derived : events;
-}
-
-/** Normaliza o caminho relativo: separador '/' e sem o prefixo './'. */
-function normalizeFileUri(fileUri: string): string {
-	return fileUri.trim().replace(/\\/g, '/').replace(/^\.\//, '');
 }

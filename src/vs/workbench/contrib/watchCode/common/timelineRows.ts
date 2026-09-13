@@ -5,6 +5,7 @@
 // allow-any-unicode-comment-file -- comentarios em portugues usam acentuacao.
 
 import { ChangeEvent, ChangeEventAttribution, ChangeLineRange } from '../../../../platform/changeLedger/common/changeEvent.js';
+import { normalizeFileUri } from '../../../../platform/changeLedger/common/filePath.js';
 import { isUnviewed } from '../../../../platform/changeLedger/common/timelineSummary.js';
 
 /**
@@ -53,8 +54,7 @@ export function buildTimelineRows(events: readonly ChangeEvent[]): TimelineRow[]
 
 /** Separa o nome do arquivo do caminho que leva ate ele. */
 export function splitFilePath(fileUri: string): { fileName: string; folderPath: string } {
-	// O caminho do evento ja vem com '/', mas normalizar aqui evita depender disso.
-	const normalized = fileUri.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+	const normalized = normalizeFileUri(fileUri);
 	const lastSeparator = normalized.lastIndexOf('/');
 
 	if (lastSeparator < 0) {
