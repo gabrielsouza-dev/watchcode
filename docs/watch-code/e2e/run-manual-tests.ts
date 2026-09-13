@@ -272,6 +272,23 @@ const VIEWED_CS_FILE = 'terceiro.cs';
 const VIEWED_TS_CONTENT = 'export function marcador(): number {\n\treturn 1;\n}\n';
 const VIEWED_JS_CONTENT = 'function segundo() {\n\treturn 2;\n}\n';
 const VIEWED_CS_CONTENT = 'namespace WatchCode {\n\tpublic static class Terceiro {\n\t}\n}\n';
+/** Arquivos de T-0013, com as tres extensoes de codigo que o CLAUDE.md pede. */
+const DECORATED_TS_FILE = 'decorado.ts';
+const DECORATED_FOLDER = 'pasta-e2t7';
+const DECORATED_JS_FILE = DECORATED_FOLDER + '/regra.js';
+const DECORATED_JS_CHILD = 'regra.js';
+const DECORATED_CLEAN_FILE = 'intocado.cs';
+
+const DECORATED_TS_CONTENT = 'export function decorado(): number {\n\treturn 1;\n}\n';
+const DECORATED_TS_SECOND_CONTENT = 'export function decorado(): number {\n\treturn 2;\n}\n';
+const DECORATED_JS_CONTENT = 'function regra() {\n\treturn 3;\n}\n';
+const DECORATED_CLEAN_CONTENT = 'namespace WatchCode {\n\tpublic static class Intocado {\n\t}\n}\n';
+
+/** Recorte da arvore de arquivos: as linhas visiveis do Explorer. */
+const EXPLORER_ROW_SELECTOR = '.explorer-folders-view .monaco-list-row';
+
+/** Classe que o proprio VS Code poe no rotulo da linha quando ha cor de decoracao. */
+const DECORATION_COLOR_CLASS = 'monaco-decoration-itemColor';
 
 /** O dialeto de cada arquivo de teste. */
 type Linguagem = 'ts' | 'js' | 'cs';
@@ -446,6 +463,108 @@ async function waitForViewedEvent(session: ISession, file: string, timeoutMs = E
 	}
 
 	return event;
+}
+
+/** O que a arvore de arquivos mostra numa linha visivel. */
+interface IExplorerRow {
+	readonly name: string;
+	readonly touched: boolean;
+	readonly unviewed: boolean;
+}
+
+/** Estado de uma linha, escrito para o relatorio das conferencias. */
+function stateOfRow(row: IExplorerRow): string {
+	return row.name + '=' + (row.unviewed ? 'novo' : row.touched ? 'tocado' : 'limpo');
+}
+
+/**
+ * Linhas visiveis da arvore de arquivos, com a decoracao que o produto desenhou.
+ *
+ * A cor se le pela classe que o proprio VS Code poe no rotulo quando ha decoracao
+ * (`labels.ts`). O selo nao: a classe do selo entra em **toda** linha decorada,
+ * mesmo sem glifo nenhum desenhado, entao o que prova o ponto e o estilo calculado
+ * do `::after`, que so tem conteudo quando ha mesmo um icone.
+ *
+ * Como toda lista do VS Code, a arvore e virtualizada: so existe linha para o que
+ * esta a vista.
+ */
+async function explorerRows(page: Page): Promise<readonly IExplorerRow[]> {
+	const rows: IExplorerRow[] = [];
+
+	for (const row of await page.locator(EXPLORER_ROW_SELECTOR).all()) {
+		const label = row.locator('.monaco-icon-label').first();
+
+		if (await label.count() === 0) {
+			continue;
+		}
+
+		const classes = (await label.getAttribute('class')) ?? '';
+		const glyph = await label.evaluate(element => getComputedStyle(element, '::after').content);
+
+		rows.push({
+			name: (await row.locator('.label-name').first().textContent() ?? '').trim(),
+			touched: classes.includes(DECORATION_COLOR_CLASS),
+			unviewed: glyph !== 'none' && glyph !== 'normal' && glyph !== ''
+		});
+	}
+
+	return rows;
+}
+
+/** Estado de um arquivo na arvore: 'novo' (cor e selo), 'tocado' (so cor), 'limpo' ou 'ausente'. */
+async function explorerStateOf(page: Page, name: string): Promise<string> {
+	const row = (await explorerRows(page)).find(entry => entry.name === name);
+
+	if (!row) {
+		return 'ausente';
+	}
+
+	return row.unviewed ? 'novo' : row.touched ? 'tocado' : 'limpo';
+}
+
+/** Espera a arvore mostrar um estado para uma linha. */
+async function waitForExplorerState(page: Page, name: string, expected: string, timeoutMs = EVENT_TIMEOUT_MS): Promise<string> {
+	const deadline = Date.now() + timeoutMs;
+	let state = await explorerStateOf(page, name);
+
+	while (state !== expected && Date.now() < deadline) {
+		await delay(500);
+		state = await explorerStateOf(page, name);
+	}
+
+	return state;
+}
+
+/** Abre a raiz do workspace na arvore, quando ela nao esta mostrando os arquivos. */
+async function revealWorkspaceRoot(page: Page, workspace: string): Promise<void> {
+	if (await explorerStateOf(page, WARM_UP_FILE) !== 'ausente') {
+		return;
+	}
+
+	const root = workspace.replace(/\\/g, '/').split('/').pop() ?? '';
+	const row = page.locator(EXPLORER_ROW_SELECTOR).filter({ hasText: root }).first();
+
+	if (await row.count() === 0) {
+		return;
+	}
+
+	await clickElement(page, row);
+	await delay(1500);
+}
+
+/** Texto que o rotulo de um arquivo expoe: o caminho mais o tooltip da decoracao. */
+async function explorerLabelText(page: Page, name: string): Promise<string> {
+	for (const row of await page.locator(EXPLORER_ROW_SELECTOR).all()) {
+		if ((await row.locator('.label-name').first().textContent() ?? '').trim() !== name) {
+			continue;
+		}
+
+		const label = row.locator('.monaco-icon-label').first();
+
+		return ((await label.getAttribute('title')) ?? (await label.getAttribute('aria-label')) ?? '').trim();
+	}
+
+	return '';
 }
 
 /**
@@ -2221,6 +2340,128 @@ const TESTS: readonly IManualTest[] = [
 
 		t.check('fase 5: cada linha desenhada mostra ponto exatamente quando o ledger diz', divergentes.length === 0, 'linhas=' + JSON.stringify(linhasDesenhadas) + ' com ponto=' + JSON.stringify(comPonto) + ' sem marca no ledger=' + JSON.stringify([...semMarcaLedger]));
 		t.check('fase 5: sobrou um lote novo, escrito no singular', tituloFinal === '1 new batch', 'titulo=' + JSON.stringify(tituloFinal));
+	}
+},
+{
+	id: 'T-0013',
+	title: 'Arquivos alterados no Explorer',
+	// O arquivo que a observacao nunca le: escrito antes de o app subir, ele e o
+	// controle negativo da decoracao — nao ha evento que o justifique.
+	prepare: workspace => writeWorkspaceFile(workspace, DECORATED_CLEAN_FILE, DECORATED_CLEAN_CONTENT),
+	run: async (session, t) => {
+		const page = session.page;
+		const workspace = session.paths.workspace;
+
+		// A sonda de aquecimento garante a observacao viva e deixa a arvore com pelo
+		// menos uma decoracao: toda conferencia compara estado lido, nunca contra zero.
+		await waitForTimelineRow(page, WARM_UP_FILE);
+		await waitUntilQuiet(session.ledger);
+		await revealWorkspaceRoot(page, workspace);
+
+		// Fase 0: a decoracao e do dado, e nao da view. A arvore mostra a sonda
+		// decorada com a lista da timeline ainda recolhida — que e como ela nasce.
+		const sonda = await waitForExplorerState(page, WARM_UP_FILE, 'novo');
+		const intocado = await explorerStateOf(page, DECORATED_CLEAN_FILE);
+		const expandida = await timelineExpanded(page);
+
+		t.check('fase 0: o arquivo que o agente tocou aparece com cor e selo', sonda === 'novo', 'sonda=' + sonda + ' arvore=' + JSON.stringify((await explorerRows(page)).map(stateOfRow)));
+		t.check('fase 0: o arquivo que o agente nunca tocou nao tem decoracao', intocado === 'limpo', 'intocado=' + intocado);
+		t.check('fase 0: a arvore ja mostra a decoracao com a timeline recolhida', expandida === false, 'timeline expandida=' + String(expandida));
+
+		// Fase 1: a escrita de fora vira cor e selo na arvore.
+		writeWorkspaceFile(workspace, DECORATED_TS_FILE, DECORATED_TS_CONTENT);
+		await waitUntilQuiet(session.ledger);
+
+		const novo = await waitForExplorerState(page, DECORATED_TS_FILE, 'novo');
+		const eventosDoArquivo = session.ledger.eventsOf(DECORATED_TS_FILE);
+
+		t.check('fase 1: a escrita externa deixa o arquivo com cor e selo na arvore', novo === 'novo', 'decorado.ts=' + novo + ' arvore=' + JSON.stringify((await explorerRows(page)).map(stateOfRow)));
+		t.check('fase 1: o evento no disco ainda nao tem viewedAt', eventosDoArquivo.length === 1 && eventosDoArquivo[0].viewedAt === undefined, 'eventos=' + eventosDoArquivo.length + ' viewedAt=' + String(eventosDoArquivo[0]?.viewedAt));
+
+		// Fase 2: ir ate a alteracao apaga o selo e mantem o rastro. A tecla vai ate a
+		// alteracao sem depender da lista: e o mesmo gesto do desenvolvedor, e a lista
+		// virtualizada nao atrapalha.
+		await pressUntil(page, 'F5', async () => session.ledger.eventsOf(DECORATED_TS_FILE).some(event => event.viewedAt !== undefined));
+
+		const visto = await waitForExplorerState(page, DECORATED_TS_FILE, 'tocado');
+		const marcado = await waitForViewedEvent(session, DECORATED_TS_FILE);
+
+		t.check('fase 2: ir ate a alteracao apaga o selo e mantem a cor', visto === 'tocado', 'decorado.ts=' + visto);
+		t.check('fase 2: o viewedAt foi gravado no evento do disco', typeof marcado?.viewedAt === 'number', 'viewedAt=' + String(marcado?.viewedAt));
+
+		// Fase 3: o mesmo arquivo, escrito de novo, volta a ser pendente.
+		writeWorkspaceFile(workspace, DECORATED_TS_FILE, DECORATED_TS_SECOND_CONTENT);
+		await waitUntilQuiet(session.ledger);
+
+		const voltou = await waitForExplorerState(page, DECORATED_TS_FILE, 'novo');
+
+		t.check('fase 3: escrita nova num arquivo ja visto faz o selo voltar', voltou === 'novo', 'decorado.ts=' + voltou + ' eventos=' + session.ledger.eventsOf(DECORATED_TS_FILE).length);
+
+		// Fase 4: a pasta sinaliza enquanto houver pendencia embaixo dela.
+		writeWorkspaceFile(workspace, DECORATED_JS_FILE, DECORATED_JS_CONTENT);
+		await waitUntilQuiet(session.ledger);
+
+		const pastaPendente = await waitForExplorerState(page, DECORATED_FOLDER, 'novo');
+
+		t.check('fase 4: a pasta com alteracao pendente mostra o sinal', pastaPendente === 'novo', 'pasta=' + pastaPendente + ' arvore=' + JSON.stringify((await explorerRows(page)).map(stateOfRow)));
+
+		await pressUntil(page, 'F5', async () => session.ledger.eventsOf(DECORATED_JS_FILE).some(event => event.viewedAt !== undefined));
+
+		const pastaDepois = await waitForExplorerState(page, DECORATED_FOLDER, 'limpo');
+
+		t.check('fase 4: depois da visita a pasta volta ao normal', pastaDepois === 'limpo', 'pasta=' + pastaDepois);
+
+		// O arquivo de dentro so existe na arvore com a pasta aberta. O clique na linha
+		// e o gesto do desenvolvedor; o twistie e a tecla ficam como rede, porque a
+		// arvore pode estar se redesenhando quando o clique chega.
+		const pasta = page.locator(EXPLORER_ROW_SELECTOR).filter({ hasText: DECORATED_FOLDER }).first();
+
+// O arquivo de dentro so existe na arvore com a pasta aberta — e depois da visita
+// quem abre a pasta e o proprio Explorer, que revela o arquivo ativo no editor.
+// Por isso a conferencia comeca olhando o que ja esta na tela, e so clica se faltar:
+// clicar numa pasta ja aberta a recolheria, que e o oposto do que o passo quer.
+let abriu = 'ja estava aberta';
+
+		if (await explorerStateOf(page, DECORATED_JS_CHILD) === 'ausente') {
+			abriu = 'clique';
+			await clickElement(page, pasta);
+			await delay(1500);
+		}
+
+		if (await explorerStateOf(page, DECORATED_JS_CHILD) === 'ausente') {
+			abriu = 'tecla';
+			await page.keyboard.press('ArrowRight');
+			await delay(1500);
+		}
+
+		if (await explorerStateOf(page, DECORATED_JS_CHILD) === 'ausente') {
+			abriu = 'twistie';
+			await clickElement(page, pasta.locator('.monaco-tl-twistie').first());
+			await delay(1500);
+		}
+
+		const arquivoDaPasta = await waitForExplorerState(page, DECORATED_JS_CHILD, 'tocado');
+
+		t.check('fase 4: o arquivo da pasta continua com a cor depois da visita', arquivoDaPasta === 'tocado', 'regra.js=' + arquivoDaPasta + ' abriu=' + abriu + ' arvore=' + JSON.stringify((await explorerRows(page)).map(stateOfRow)));
+
+		// Fase 5: cada linha desenhada concorda com o ledger, e o que sobra e medicao.
+		const linhas = await explorerRows(page);
+		const esperado = new Map<string, string>();
+
+		for (const event of session.ledger.events()) {
+			const nome = fileNameOf(event.fileUri);
+			const estado = event.viewedAt === undefined ? 'novo' : 'tocado';
+
+			if (estado === 'novo' || !esperado.has(nome)) {
+				esperado.set(nome, estado);
+			}
+		}
+
+		const divergentes = linhas.filter(row => esperado.has(row.name) && !stateOfRow(row).endsWith(esperado.get(row.name) ?? ''));
+		const decoradas = linhas.filter(row => row.touched).map(stateOfRow);
+
+		t.check('fase 5: cada linha desenhada mostra o mesmo estado que o ledger', divergentes.length === 0, 'divergentes=' + JSON.stringify(divergentes.map(stateOfRow)) + ' esperado=' + JSON.stringify([...esperado]) + ' arvore=' + JSON.stringify(linhas.map(stateOfRow)));
+		t.check('medicao (nao reprova): linhas decoradas na arvore', true, 'decoradas=' + JSON.stringify(decoradas) + ' rotulo=' + JSON.stringify(await explorerLabelText(page, WARM_UP_FILE)));
 	}
 },
 ];
