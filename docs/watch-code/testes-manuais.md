@@ -1880,6 +1880,128 @@ e é ela que aparece no bloco acima: `aquecimento.ts 2026-09-13 15:26 Not viewed
 **aprovado.**
 
 
+---
 
+## T-0015 — Cálculo de diff
 
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | **E3-T1 — Cálculo de diff** |
+| Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0015` |
+| Situação | aprovado |
+| Data de execução | 13/09/2026 |
 
+### Objetivo
+
+Provar que o produto calcula o **diff de verdade** entre os dois snapshots de um evento — hunks
+separados, e não uma faixa única cobrindo tudo o que há entre a primeira e a última diferença —, e que
+isso chega ao que o desenvolvedor vê: a faixa de linhas na linha do tempo e o lugar onde o salto para.
+
+O teste de unidade prova o cálculo: os hunks, as contagens e os casos de borda, inclusive os que o
+produtor provisório da E2-T4 não sabia responder (duas alterações distantes, bloco movido). O que ele
+não prova é o caminho inteiro com a janela montada: que o evento gravado no disco tem **duas** faixas,
+que a linha da lista as escreve como `2, 8` e não como `2-8`, e que o salto para na **primeira**
+faixa, com só ela selecionada. É essa a diferença entre "o módulo funciona" e "o produto mostra".
+
+### Pré-condições
+
+- Build atualizado: `npm run transpile-client` (o arnês aborta se o `out/` estiver mais velho que as
+  pastas de `src/vs` que ele acompanha).
+- O workspace e o perfil isolado são criados pelo próprio arnês, em `%TEMP%/watchcode-manual/t-0015`, já
+  com repositório git e um commit inicial de `distante.ts` e `movido.js` — é esse `HEAD` que dá o
+  "antes" do diff; sem ele o evento nasce parcial e não tem faixa nenhuma para conferir.
+- Dois arquivos nascem no cenário, em duas extensões de código: `distante.ts`, com dez declarações, uma
+  por linha; e `movido.js`, com seis. As alterações são **distantes** de propósito: é a distância que
+  separa um diff por hunks de uma faixa única.
+- A sonda de aquecimento (`aquecimento.ts`) garante a observação viva antes de medir.
+
+### Passos
+
+1. Abra a IDE no workspace observado, com perfil próprio, e confirme a observação pela sonda: escreva
+   `aquecimento.ts` e espere o evento dele no ledger.
+2. **Fase 1** — escreva de fora, como faria um agente, a versão de `distante.ts` com as linhas **2** e
+   **8** alteradas, e o trecho entre elas intacto. Espere o ledger sossegar e confira o evento do
+   arquivo: ele tem de ter **duas** faixas, `[[2,2],[8,8]]`. Confira a linha da lista: o detalhe
+   mostra `2, 8` — e não `2-8` —, e é o mesmo texto que o ledger monta.
+3. **Fase 2** — clique na linha. Confira: o arquivo abre, o cursor cai na **linha 2** e a seleção é a
+   primeira faixa, e não o trecho entre as duas alterações.
+4. **Fase 3** — escreva `movido.js` com a segunda linha movida para o fim do arquivo. Espere o ledger
+   sossegar e confira: o evento tem duas faixas `[[2,2],[5,5]]` — a remoção onde a linha estava e a
+   inserção onde ela ficou —, e a linha da lista mostra `2, 5`.
+5. Confira o log do perfil: nenhuma linha de erro ou aviso escrita pelo produto.
+
+### Resultado esperado
+
+- Passo 2: evento com `linesChanged=[[2,2],[8,8]]`, detalhe da linha em `2, 8` e igual ao que o
+  ledger monta. Com o produtor provisório da E2-T4, o mesmo arquivo daria **uma** faixa, `2-8`.
+- Passo 3: editor em `distante.ts`, posição em `Ln 2`, com a seleção do tamanho de uma linha (e não
+  das sete linhas que a faixa única cobriria).
+- Passo 4: evento do `movido.js` com `[[2,2],[5,5]]` e o detalhe da linha em `2, 5`.
+- Passo 5: nenhuma linha `[error]` ou `[warning]` com o prefixo `[watchCode]` em `main.log` ou
+  `window1/renderer.log`.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 13/09/2026 — **na primeira execução**. As
+**dez** conferências da execução: as nove do cenário e a varredura de log.
+
+```text
+T-0015 — Calculo de diff por hunks
+      janela montada em 49s
+      ledger: C:\Users\Gabriel S\AppData\Local\Temp\watchcode-manual\t-0015\user-data\User\workspaceStorage\161570ecc441cd26d02db6c7a92c92e2\changeLedger
+      observacao de pe: a sonda foi registrada em 2026-09-13T19:42:20.195Z
+  ok    fase 1: o evento tem as duas alteracoes como faixas separadas — faixas="2, 8" evento=[[2,2],[8,8]]
+  ok    fase 1: as faixas sao as linhas alteradas — faixas=[[2,2],[8,8]]
+  ok    fase 1: a linha do tempo mostra as duas faixas, e nao o trecho inteiro — detalhe="2, 8 · 16:42 · Disk"
+  ok    fase 1: o detalhe desenhado e o mesmo que o ledger monta — desenhado="2, 8 · 16:42 · Disk" ledger="2, 8 · 16:42 · Disk"
+  ok    fase 2: o clique abre o arquivo da alteracao — editor="distante.ts"
+  ok    fase 2: o cursor cai na primeira faixa, e so ela esta selecionada — posicao="Ln 2, Col 42 (41 selected)" selecionados=41
+  ok    fase 3: o bloco movido vira duas faixas, remocao e insercao — faixas="2, 5" evento=[[2,2],[5,5]]
+  ok    fase 3: a linha do tempo mostra as duas faixas do bloco movido — detalhe="2, 5 · 16:43 · Disk"
+  ok    medicao (nao reprova): tooltip da linha — tooltip="distante.ts 2026-09-13 16:42 Lines 2, 8 Disk" detalhes=["1 · 16:42 · Disk","2, 8 · 16:42 · Disk","2, 5 · 16:43 · Disk"]
+  ok    log: o produto nao escreveu erro nem aviso — linhas=72 problemas=[]
+
+veredito: PASSOU (1 testes manuais)
+```
+
+O bloco acima é de uma execução do cenário sozinho. O arnês inteiro — os **quinze** cenários — foi
+executado na mesma revisão, com o T-0015 no fim da fila, e passou: `veredito: PASSOU (15 testes
+manuais)`. Na execução completa o cenário repetiu as nove conferências com a janela montada em 7s
+(`linhas=64` na varredura de log), e o T-0010 — que já falhou por instabilidade da máquina numa execução
+anterior — fechou em `ida 2: posicao="Ln 100, Col 61 (60 selected)"`.
+
+### Leitura linha a linha
+
+- A **fase 1** é a diferença que a tarefa existe para produzir: `faixas="2, 8"` com
+  `evento=[[2,2],[8,8]]` são **dois** hunks no evento gravado no disco, e `detalhe="2, 8 · 16:42 · Disk"`
+  é a linha da lista escrevendo os dois. O produtor provisório comparava as pontas e devolvia uma faixa
+  só — a mesma escrita apareceria como `2-8`, mandando o desenvolvedor para um trecho de sete linhas
+  onde só duas mudaram. A conferência do detalhe contra o ledger (`desenhado` igual a `ledger`) é a
+  mesma do T-0010: quem desenha não inventa.
+- A **fase 2** é o salto, e a prova é o tamanho da seleção: `41 selected` é a linha 2 inteira
+  (`const valor2 = 0; // alterado pelo agente`), e não as sete linhas que a faixa única cobriria. A
+  barra de status mostra o **fim** da seleção, e não o começo — por isso a conferência olha a linha do
+  cursor e a contagem de caracteres, e não a coluna.
+- A **fase 3** é o caso que o diff de linhas não promete resolver: um bloco movido. `[[2,2],[5,5]]` diz
+  o que de fato aconteceu no arquivo — a linha saiu de onde estava e entrou em outro lugar —, e a linha
+  da lista mostra `2, 5`. Detectar a movimentação e dizer "esta linha mudou de lugar" é outro produto;
+  aqui a promessa é a linha, e a linha foi cumprida.
+- A **medição** guarda o tooltip: `distante.ts 2026-09-13 16:42 Lines 2, 8 Disk` — o caminho relativo,
+  a data e a hora da alteração mais recente e a faixa de linhas, que é a mesma do detalhe.
+- A **varredura de log** leu 72 linhas do `main.log` e do `renderer.log` do perfil sem achar nada
+  escrito pelo produto.
+
+### Histórico de execução
+
+**Passou na primeira execução, com nove conferências e nenhum ajuste de cenário.** O produtor novo foi
+implementado, os testes de unidade escritos e o cenário acrescentado; a execução seguinte já veio verde.
+Nenhuma correção foi feita no produto nem no cenário por causa dela.
+
+**O limite de tamanho do diff não aparece aqui, e é de propósito.** O `distante.ts` tem dez linhas; o
+corte que troca o diff fino por um bloco único só entra acima de 4000 linhas por lado, e quem o cobre é o
+teste de unidade — no app ele exigiria um arquivo grande reescrito de fora, que mediria o corte e não a
+promessa do produto.
+
+### Situação
+
+**aprovado.**

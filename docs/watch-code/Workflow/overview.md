@@ -224,7 +224,7 @@ Só há **um** lado de código no par antes/depois: o trecho atual. O "depois" �
 
 Slug sugerido para a SPEC: o próprio id em minúsculas (ex.: `e1-t2-ledger-snapshots`).
 
-**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **158 casos no `changeLedger` e 66 no `watchCode`**.
+**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **169 casos no `changeLedger` e 66 no `watchCode`**.
 
 ### Etapa E0 — Enxugamento do fork
 
@@ -393,11 +393,23 @@ não caiu na faixa) e passou isolado logo depois, com o mesmo código de salto.
 
 | ID | Tarefa | Entregável | Depende | Status |
 | --- | --- | --- | --- | --- |
-| E3-T1 | Cálculo de diff | Diff a partir dos snapshots: hunks, ranges e contagem de linhas, com testes. **Substitui o produtor provisório** de `linesChanged` (`changeLedger/common/changedLines.ts`, antecipado na E2-T4 por decisão D9): o arquivo e seus testes saem quando os hunks entrarem, sem os dois conviverem | E2-T5 | pendente |
+| E3-T1 | Cálculo de diff | Diff a partir dos snapshots: hunks, ranges e contagem de linhas, com testes. **Substitui o produtor provisório** de `linesChanged` (`changeLedger/common/changedLines.ts`, antecipado na E2-T4 por decisão D9): o arquivo e seus testes saem quando os hunks entrarem, sem os dois conviverem | E2-T5 | feito (22 testes no cálculo de diff e 1 no gravador (`changeLedger`, os 12 do provisório saíram: 158 → 169); `changedLines.ts` e o teste dele foram removidos; manual T-0015 aprovado com **9 conferências** e a varredura de log. Duas alterações distantes passaram a virar **duas** faixas — antes o produtor provisório devolvia uma só, cobrindo o trecho inteiro entre elas) |
 | E3-T2 | Documentos virtuais | Provedores `aih-before:` e `aih-after:` (read-only) servindo os snapshots | E3-T1 | pendente |
 | E3-T3 | Decorações | Linhas adicionadas em verde e removidas em vermelho, gutter e visão geral | E3-T2 | pendente |
 | E3-T4 | Modos de visualização | Somente alterações (com contexto de N linhas), somente anterior e ambos, alternáveis e persistentes | E3-T3 | pendente |
 | E3-T5 | Fechamento da E3 | Ao navegar, o antes/depois fica claro nos três modos | E3-T4 | pendente |
+
+**O que a E3-T1 deixou medido:** o diff deixou de ser uma faixa única e passou a ser **hunks**. Duas
+alterações distantes no mesmo arquivo viram duas faixas no evento e na linha do tempo — com o produtor
+provisório a mesma escrita aparecia como `2-8`, mandando o salto para um trecho de sete linhas onde só
+duas mudaram. O custo do diff de verdade é O(ND) e vem do **número de diferenças**, não do tamanho do
+arquivo: medido no pior caso (conteúdo inteiramente diferente), 4000 linhas custam cerca de 460 ms e
+12000 custam cerca de 3 s, enquanto 8000 linhas com duas alterações distantes custam 10 ms. Acima de
+4000 linhas por lado o cálculo não tenta o diff fino e devolve **um bloco**, marcado como grosso
+(`coarse`): para um arquivo reescrito por inteiro o resultado seria o mesmo, e para um arquivo grande
+com uma alteração local o recorte por prefixo e sufixo também acerta — o salto continua caindo no começo
+da alteração. Um bloco movido aparece como remoção mais inserção: o produto promete **linha**, não
+movimentação.
 
 ### Etapa E4 — Ponte `.md` com o agente
 
