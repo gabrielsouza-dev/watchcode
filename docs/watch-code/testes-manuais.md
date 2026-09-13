@@ -1737,7 +1737,9 @@ vez de abrir editor. Nada disso cabe em teste de unidade.
    ledger sossegar e confira: as duas linhas entram na árvore **sem recarregar a janela**, com o ponto, e
    a pasta aparece com o arquivo dentro. O evento no disco continua **sem** `viewedAt`.
 4. **Fase 2** — aperte **F7** com a view em uso. Confira: a árvore recolhe e o foco sai de dentro dela.
-5. **Fase 3** — abra a árvore de novo e **clique** na linha de `mudado.ts`. Confira: o editor abre o
+5. **Fase 3** — ainda com a árvore **recolhida**, escreva `durante.cs` de fora. Espere o ledger sossegar e
+   só então abra a árvore de novo: a alteração já tem de estar lá — abrir não redesenha o corpo da view,
+   então quem a colocou ali foi a escuta da própria view. Agora **clique** na linha de `mudado.ts`. Confira: o editor abre o
    arquivo, o cursor cai na linha alterada com a faixa selecionada, o `viewedAt` foi gravado no evento e o
    ponto some sem o arquivo sair da árvore. Feche o editor (`Ctrl+W`) e aperte **Enter** com a linha ainda
    focada: a alteração abre de novo. Depois aperte **F7**: a árvore recolhe e o foco **volta para o
@@ -1756,7 +1758,8 @@ vez de abrir editor. Nada disso cabe em teste de unidade.
 - Passo 3: `mudado.ts` e `regra.js` com o ponto, a pasta `pasta-e2t8` na árvore, e `viewedAt=undefined`
   no evento do disco.
 - Passo 4: `expandida=false` depois do F7 e o foco fora da árvore.
-- Passo 5: editor em `mudado.ts`, posição em `Ln 2` com a faixa selecionada, `viewedAt` numérico no disco,
+- Passo 5: `durante.cs` na árvore já na primeira leitura depois de a view abrir, editor em `mudado.ts`,
+  posição em `Ln 2` com a faixa selecionada, `viewedAt` numérico no disco,
   a linha de volta a `visto`, o Enter reabrindo a alteração e o F7 devolvendo o foco ao editor.
 - Passo 6: `apagado.js` em `novo` quando criado e em `removido` depois de apagado, com o aviso do produto
   ao abrir — e sem editor aberto para o arquivo que não existe mais.
@@ -1766,14 +1769,14 @@ vez de abrir editor. Nada disso cabe em teste de unidade.
 
 ### Resultado obtido
 
-Executado pelo arnês no aplicativo, em perfil isolado, em 13/09/2026. As **vinte e três** conferências da
-execução — as vinte e duas do cenário e a varredura de log:
+Executado pelo arnês no aplicativo, em perfil isolado, em 13/09/2026. As **vinte e quatro** conferências da
+execução — as vinte e três do cenário e a varredura de log:
 
 ```text
 T-0014 — So o que mudou
-      janela montada em 11s
-      ledger: C:\Users\Gabriel S\AppData\Local\Temp\watchcode-manual\t-0014\user-data\User\workspaceStorage\0ab066b52764e587e6710117e816ec65\changeLedger
-      observacao de pe: a sonda foi registrada em 2026-09-13T18:26:46.831Z
+      janela montada em 14s
+      ledger: C:\Users\Gabriel S\AppData\Local\Temp\watchcode-manual\t-0014\user-data\User\workspaceStorage\1bf2cd11e892b35c72ea0669fb2d4beb\changeLedger
+      observacao de pe: a sonda foi registrada em 2026-09-13T18:45:53.212Z
   ok    fase 0: a view do so o que mudou esta na janela — cabecalhos=1
   ok    fase 0: a view nasce recolhida — recolhida=false
   ok    fase 0: o F7 abre a arvore e leva o foco para ela — abriu=true foco=true
@@ -1784,19 +1787,20 @@ T-0014 — So o que mudou
   ok    fase 1: o evento no disco ainda nao tem viewedAt — eventos=1 viewedAt=undefined
   ok    fase 2: o F7 com a view em uso recolhe a arvore — foco antes=true expandida=false
   ok    fase 2: o foco sai de dentro da arvore — foco na arvore=false
+  ok    fase 3: a escrita com a arvore recolhida ja esta na arvore ao abrir — durante.cs={"name":"durante.cs","folder":false,"unviewed":true,"removed":false}
   ok    fase 3: o clique na arvore abre o arquivo da alteracao — arvore aberta=true editor="mudado.ts"
   ok    fase 3: o editor cai na linha alterada, com a faixa selecionada — posicao="Ln 2, Col 14 (10 selected)" esperado=Ln 2, com selecao
-  ok    fase 3: o viewedAt foi gravado no evento do disco — viewedAt=1789324044140
+  ok    fase 3: o viewedAt foi gravado no evento do disco — viewedAt=1789325192485
   ok    fase 3: o ponto some e o arquivo continua na arvore — mudado.ts=visto
   ok    fase 3: o Enter na linha focada abre a alteracao — antes do Enter="" depois="mudado.ts" linha focada="mudado.ts"
   ok    fase 3: recolher com a arvore em uso devolve o foco ao editor — expandida=false foco no editor=true
   ok    fase 4: o arquivo criado pelo agente aparece na arvore — apagado.js={"name":"apagado.js","folder":false,"unviewed":true,"removed":false}
   ok    fase 4: o arquivo removido continua na arvore, marcado — apagado.js=removido eventos=["escrita","remocao"]
   ok    fase 4: abrir o removido avisa em vez de abrir editor — avisos=["This change removed the file. Nothing to open."] editor="mudado.ts"
-  ok    fase 5: cada linha da arvore mostra o mesmo estado que o ledger — divergentes=[] esperado=[["aquecimento.ts","novo"],["mudado.ts","visto"],["regra.js","novo"],["apagado.js","removido"]]
-  ok    fase 5: nenhum arquivo sem alteracao aparece na arvore — extras=[] arvore=["regra.js=novo","apagado.js=removido","aquecimento.ts=novo","mudado.ts=visto"]
-  ok    medicao (nao reprova): linhas da arvore, tooltip e o comando na Paleta — arquivos=["regra.js=novo","apagado.js=removido","aquecimento.ts=novo","mudado.ts=visto"] pastas=["workspace","pasta-e2t8"] tooltip="aquecimento.ts 2026-09-13 15:26 Not viewed yet" paleta=["Watch Code: Show Only Changed Files F7","Explorer: Focus on Changed Only View similar commands"]
-  ok    log: o produto nao escreveu erro nem aviso — linhas=64 problemas=[]
+  ok    fase 5: cada linha da arvore mostra o mesmo estado que o ledger — divergentes=[] esperado=[["aquecimento.ts","novo"],["mudado.ts","visto"],["regra.js","novo"],["durante.cs","novo"],["apagado.js","removido"]]
+  ok    fase 5: nenhum arquivo sem alteracao aparece na arvore — extras=[] arvore=["regra.js=novo","apagado.js=removido","aquecimento.ts=novo","durante.cs=novo"]
+  ok    medicao (nao reprova): linhas da arvore, tooltip e o comando na Paleta — arquivos=["regra.js=novo","apagado.js=removido","aquecimento.ts=novo","durante.cs=novo"] pastas=["workspace","pasta-e2t8"] tooltip="aquecimento.ts 2026-09-13 15:45 Not viewed yet" paleta=["Watch Code: Show Only Changed Files F7","Explorer: Focus on Changed Only View similar commands"]
+  ok    log: o produto nao escreveu erro nem aviso — linhas=65 problemas=[]
 
 veredito: PASSOU (1 testes manuais)
 ```
@@ -1817,10 +1821,14 @@ executado na mesma revisão, com o T-0014 no fim da fila, e passou: `veredito: P
   disco. `viewedAt=undefined` no evento confirma que nada foi marcado ainda.
 - A **fase 2** é o outro lado do F7: `foco antes=true` e `expandida=false` dizem que a mesma tecla, com a
   view em uso, fecha a árvore; `foco na arvore=false` diz que o foco saiu junto.
-- A **fase 3** é a travessia inteira de uma alteração. `editor="mudado.ts"` com
+- A **fase 3** começa pela conferência que separa a escuta do desenho:
+  `durante.cs={"name":"durante.cs",...,"unviewed":true}` aparece **na primeira leitura depois de a view
+  abrir**, e a escrita aconteceu com a árvore recolhida. O corpo da view é desenhado uma vez só; quem
+  colocou a linha ali foi o aviso do serviço, ouvido desde a construção da view.
+- Ainda a **fase 3**, a travessia inteira de uma alteração: `editor="mudado.ts"` com
   `posicao="Ln 2, Col 14 (10 selected)"` é o salto da E2-T4 chegando pela árvore: a linha 2 com a faixa
   alterada selecionada (a barra de status mostra o **fim** da seleção, não o começo). O
-  `viewedAt=1789322847094` no arquivo do evento é a marca no disco, e `mudado.ts=visto` é a linha perdendo
+  `viewedAt=1789325192485` no arquivo do evento é a marca no disco, e `mudado.ts=visto` é a linha perdendo
   o ponto sem sair da árvore. `antes do Enter="" depois="mudado.ts"` prova que a tecla sozinha reabre a
   alteração da linha focada, e `foco no editor=true` prova que recolher devolve o desenvolvedor para onde
   ele estava lendo.
@@ -1850,8 +1858,13 @@ view estava **recolhida** desde a fase 3 — e recolhida não há linha desenhad
 um ajudante (`showChangedOnly`) que abre a árvore **sem alternar** o que já está aberto; com ele, a fase
 4 lê o que precisa e as duas conferências passaram.
 
-**Segunda execução: passou inteiro, com as vinte e duas conferências.** O cenário foi ajustado, e não o
-produto: nenhuma linha de `contrib/watchCode` mudou entre as duas execuções.
+**Segunda execução: passou inteiro.** O cenário foi ajustado, e não o produto: nenhuma linha de
+`contrib/watchCode` mudou entre as duas execuções.
+
+**Uma conferência a mais, ainda na validação.** O critério 12 da SPEC pedia a escrita nova entrando na
+árvore "inclusive com a view recolhida", e o cenário escrevia sempre com ela aberta. A conferência foi
+acrescentada — escrever `durante.cs` entre a fase 2 e a fase 3, com a view fechada — e passou na primeira
+execução: a escuta nasce na construção da view, antes de qualquer desenho.
 
 **O tooltip não se lê por atributo, e o balão do VS Code não é só do mouse.** A medição começou vazia
 porque o hover do produto é o `IManagedHover` do próprio VS Code, que não publica o texto em `title` nem
