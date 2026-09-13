@@ -284,6 +284,33 @@ const DECORATED_TS_SECOND_CONTENT = 'export function decorado(): number {\n\tret
 const DECORATED_JS_CONTENT = 'function regra() {\n\treturn 3;\n}\n';
 const DECORATED_CLEAN_CONTENT = 'namespace WatchCode {\n\tpublic static class Intocado {\n\t}\n}\n';
 
+/**
+ * Arquivos de T-0014: um no HEAD (com o antes que da faixa de linhas ao salto), um
+ * novo dentro de uma pasta e um que o agente cria e depois apaga. O intocado e o
+ * controle negativo da arvore: ele nunca vira evento.
+ */
+const CHANGED_TS_FILE = 'mudado.ts';
+const CHANGED_FOLDER = 'pasta-e2t8';
+const CHANGED_JS_FILE = CHANGED_FOLDER + '/regra.js';
+const CHANGED_REMOVED_FILE = 'apagado.js';
+const CHANGED_CLEAN_FILE = 'parado.cs';
+
+/** Conteudo no HEAD: e o antes da primeira alteracao de mudado.ts. */
+const CHANGED_TS_HEAD_CONTENT = 'export function mudado(): number {\n\treturn 1;\n}\n';
+
+/** Conteudo depois da escrita de fora: a linha 2 e a alterada. */
+const CHANGED_TS_CONTENT = 'export function mudado(): number {\n\treturn 2;\n}\n';
+const CHANGED_JS_CONTENT = 'function regra() {\n\treturn 3;\n}\n';
+const CHANGED_REMOVED_CONTENT = 'function apagado() {\n\treturn 4;\n}\n';
+const CHANGED_CLEAN_CONTENT = 'namespace WatchCode {\n\tpublic static class Parado {\n\t}\n}\n';
+
+/** Cabecalho da view do so o que mudou. */
+const CHANGED_ONLY_HEADER_SELECTOR = '.pane-header:has-text("Changed Only")';
+
+/** Linhas da arvore do so o que mudou, e a linha que esta com o foco do teclado. */
+const CHANGED_ROW_SELECTOR = '.watch-code-changed-only .watch-code-changed-row';
+const CHANGED_FOCUSED_ROW_SELECTOR = '.watch-code-changed-only .monaco-list-row.focused';
+
 /** Recorte da arvore de arquivos: as linhas visiveis do Explorer. */
 const EXPLORER_ROW_SELECTOR = '.explorer-folders-view .monaco-list-row';
 
@@ -565,6 +592,187 @@ async function explorerLabelText(page: Page, name: string): Promise<string> {
 	}
 
 	return '';
+}
+
+/** O que a arvore do so o que mudou mostra numa linha visivel. */
+interface IChangedRow {
+	readonly name: string;
+	readonly folder: boolean;
+	readonly unviewed: boolean;
+	readonly removed: boolean;
+}
+
+/**
+ * Estado de uma linha, escrito para o relatorio das conferencias.
+ *
+ * A ordem e a mesma do desenho: o arquivo que a alteracao removeu aparece como
+ * removido mesmo quando ainda ha alteracao nova nele.
+ */
+function changedStateOf(row: IChangedRow): string {
+	return row.folder ? 'pasta' : row.removed ? 'removido' : row.unviewed ? 'novo' : 'visto';
+}
+
+/** Nome e estado da linha, no formato das outras conferencias. */
+function stateOfChangedRow(row: IChangedRow): string {
+	return row.name + '=' + changedStateOf(row);
+}
+
+/** Cabecalho da view do so o que mudou. */
+function changedOnlyHeader(page: Page): Locator {
+	return page.locator(CHANGED_ONLY_HEADER_SELECTOR);
+}
+
+/** Se a view esta expandida, pelo que o proprio cabecalho anuncia. */
+async function changedOnlyExpanded(page: Page): Promise<boolean> {
+	return await changedOnlyHeader(page).first().getAttribute('aria-expanded') === 'true';
+}
+
+/**
+ * Mostra a arvore do so o que mudou sem alternar o que ja esta aberto.
+ *
+ * O F7 e um alternador: quem so quer ler a arvore precisa saber se ela esta
+ * aberta antes de apertar a tecla, senao a leitura acontece com a view recolhida —
+ * e recolhida nao ha linha desenhada para ler.
+ */
+async function showChangedOnly(page: Page): Promise<boolean> {
+	if (!await changedOnlyExpanded(page)) {
+		await page.keyboard.press('F7');
+		await delay(1000);
+	}
+
+	return await changedOnlyExpanded(page);
+}
+
+/** Se o foco do teclado esta dentro da arvore do so o que mudou. */
+async function changedOnlyFocused(page: Page): Promise<boolean> {
+	return await page.evaluate(() => !!document.activeElement?.closest('.watch-code-changed-only'));
+}
+
+/** Se o foco do teclado esta no editor. */
+async function editorFocused(page: Page): Promise<boolean> {
+	return await page.evaluate(() => !!document.activeElement?.closest('.monaco-editor'));
+}
+
+/**
+ * Linhas visiveis da arvore do so o que mudou.
+ *
+ * O ponto se le pela visibilidade do proprio selo, e nao pela classe: o selo entra
+ * em toda linha, e o CSS o esconde sem tirar o espaco dele do layout. O estado do
+ * arquivo removido se le pelo icone, que e o que a alteracao de remocao desenha.
+ * Como toda arvore do VS Code, ela e virtualizada: so existe linha para o que esta
+ * a vista.
+ */
+async function changedRows(page: Page): Promise<readonly IChangedRow[]> {
+	const rows: IChangedRow[] = [];
+
+	for (const row of await page.locator(CHANGED_ROW_SELECTOR).all()) {
+		const badge = row.locator('.badge').first();
+		const icon = (await row.locator('.icon').first().getAttribute('class')) ?? '';
+
+		rows.push({
+			name: collapse(await row.locator('.name').first().textContent() ?? ''),
+			folder: icon.includes('codicon-folder'),
+			unviewed: await badge.count() > 0 && await badge.isVisible(),
+			removed: icon.includes('codicon-trash')
+		});
+	}
+
+	return rows;
+}
+
+/** Onde ficam as linhas da arvore, para o clique e para a leitura do rotulo. */
+function changedRow(page: Page, name: string): Locator {
+	return page.locator(CHANGED_ROW_SELECTOR).filter({ hasText: name }).first();
+}
+
+/** Espera a arvore mostrar uma linha com este nome. */
+async function waitForChangedRow(page: Page, name: string, timeoutMs = EVENT_TIMEOUT_MS): Promise<IChangedRow | undefined> {
+	const deadline = Date.now() + timeoutMs;
+	let row = (await changedRows(page)).find(entry => entry.name === name);
+
+	while (row === undefined && Date.now() < deadline) {
+		await delay(500);
+		row = (await changedRows(page)).find(entry => entry.name === name);
+	}
+
+	return row;
+}
+
+/** Espera a linha de um arquivo chegar ao estado pedido e devolve o estado lido. */
+async function waitForChangedState(page: Page, name: string, expected: string, timeoutMs = EVENT_TIMEOUT_MS): Promise<string> {
+	const deadline = Date.now() + timeoutMs;
+	let state = await changedStateOfName(page, name);
+
+	while (state !== expected && Date.now() < deadline) {
+		await delay(500);
+		state = await changedStateOfName(page, name);
+	}
+
+	return state;
+}
+
+/** Estado de um arquivo na arvore, ou 'ausente' quando a linha nao esta desenhada. */
+async function changedStateOfName(page: Page, name: string): Promise<string> {
+	const row = (await changedRows(page)).find(entry => entry.name === name);
+
+	return row === undefined ? 'ausente' : changedStateOf(row);
+}
+
+/** Nome da linha que esta com o foco do teclado, quando ha alguma. */
+async function focusedChangedRow(page: Page): Promise<string> {
+	const row = page.locator(CHANGED_FOCUSED_ROW_SELECTOR).first();
+
+	return await row.count() === 0 ? '' : collapse(await row.locator('.name').first().textContent() ?? '');
+}
+
+/**
+ * Texto que o tooltip de uma linha mostra.
+ *
+ * O hover do produto e o `IManagedHover` do proprio VS Code, que nao publica o
+ * texto em atributo nenhum: o caminho e passar o mouse e ler o balao que aparece.
+ */
+async function changedRowTooltip(page: Page, name: string, timeoutMs = 10000): Promise<string> {
+	const row = changedRow(page, name);
+
+	if (await row.count() === 0) {
+		return '';
+	}
+
+	// Um balao que ja estava aberto responderia pela linha errada: o mouse sai de cena
+	// e a leitura so comeca quando nao ha balao nenhum na tela.
+	await page.mouse.move(0, 0);
+
+	try {
+		await page.locator('.monaco-hover').first().waitFor({ state: 'hidden', timeout: 3000 });
+	} catch {
+		// Sem balao aberto, que e o caso comum.
+	}
+
+	try {
+		await row.hover({ timeout: 3000 });
+	} catch {
+		// O contexto de edicao nativo pode recusar o hover; o mouse vai pelas coordenadas.
+		const box = await row.boundingBox();
+
+		if (!box) {
+			return '';
+		}
+
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	}
+
+	// O hover do VS Code abre no mouse e no **foco** do teclado; para a leitura nao
+	// depender de qual dos dois abriu, a medida e feita na linha da sonda, que e a
+	// linha focada da arvore.
+	const hover = page.locator('.monaco-hover').first();
+
+	try {
+		await hover.waitFor({ state: 'visible', timeout: timeoutMs });
+	} catch {
+		return '';
+	}
+
+	return collapse(await hover.innerText());
 }
 
 /**
@@ -2462,6 +2670,175 @@ let abriu = 'ja estava aberta';
 
 		t.check('fase 5: cada linha desenhada mostra o mesmo estado que o ledger', divergentes.length === 0, 'divergentes=' + JSON.stringify(divergentes.map(stateOfRow)) + ' esperado=' + JSON.stringify([...esperado]) + ' arvore=' + JSON.stringify(linhas.map(stateOfRow)));
 		t.check('medicao (nao reprova): linhas decoradas na arvore', true, 'decoradas=' + JSON.stringify(decoradas) + ' rotulo=' + JSON.stringify(await explorerLabelText(page, WARM_UP_FILE)));
+	}
+},
+{
+	id: 'T-0014',
+	title: 'So o que mudou',
+	// O intocado e o controle negativo da arvore do so o que mudou, e o commit da
+	// versao anterior de mudado.ts e o antes que da faixa de linhas ao salto.
+	prepare: workspace => {
+		writeWorkspaceFile(workspace, CHANGED_CLEAN_FILE, CHANGED_CLEAN_CONTENT);
+		commitWorkspace(workspace, [[CHANGED_TS_FILE, CHANGED_TS_HEAD_CONTENT]]);
+	},
+	run: async (session, t) => {
+		const page = session.page;
+		const workspace = session.paths.workspace;
+
+		// A sonda de aquecimento garante a observacao viva e deixa a arvore com pelo
+		// menos um arquivo: toda conferencia compara estado lido, nunca contra zero.
+		await waitForTimelineRow(page, WARM_UP_FILE);
+		await waitUntilQuiet(session.ledger);
+
+		// Fase 0: a view existe, nasce recolhida, e o F7 e quem a abre.
+		const cabecalhos = await changedOnlyHeader(page).count();
+		const recolhida = await changedOnlyExpanded(page);
+		const abriu = await pressUntil(page, 'F7', async () => await changedOnlyExpanded(page));
+		const sonda = await waitForChangedRow(page, WARM_UP_FILE);
+		const nomesNaTela = (await changedRows(page)).map(row => row.name);
+
+		t.check('fase 0: a view do so o que mudou esta na janela', cabecalhos > 0, 'cabecalhos=' + cabecalhos);
+		t.check('fase 0: a view nasce recolhida', recolhida === false, 'recolhida=' + String(recolhida));
+		t.check('fase 0: o F7 abre a arvore e leva o foco para ela', abriu && await changedOnlyFocused(page), 'abriu=' + String(abriu) + ' foco=' + String(await changedOnlyFocused(page)));
+		t.check('fase 0: a arvore mostra o arquivo da sonda, e nao o que o agente nunca tocou', sonda !== undefined && !nomesNaTela.includes(CHANGED_CLEAN_FILE), 'arvore=' + JSON.stringify(nomesNaTela));
+		t.check('fase 0: o arquivo da sonda aparece com o ponto', sonda?.unviewed === true, 'sonda=' + JSON.stringify(sonda));
+
+		// Fase 1: a escrita de fora entra na arvore ao vivo, com a pasta do caminho.
+		writeWorkspaceFile(workspace, CHANGED_TS_FILE, CHANGED_TS_CONTENT);
+		writeWorkspaceFile(workspace, CHANGED_JS_FILE, CHANGED_JS_CONTENT);
+		await waitUntilQuiet(session.ledger);
+
+		const mudado = await waitForChangedRow(page, CHANGED_TS_FILE);
+		const pasta = await waitForChangedRow(page, CHANGED_FOLDER);
+		const regra = await waitForChangedRow(page, 'regra.js');
+		const semMarca = session.ledger.eventsOf(CHANGED_TS_FILE);
+
+		t.check('fase 1: o arquivo escrito de fora entra na arvore sem recarregar a janela', mudado?.unviewed === true, CHANGED_TS_FILE + '=' + JSON.stringify(mudado) + ' arvore=' + JSON.stringify((await changedRows(page)).map(stateOfChangedRow)));
+		t.check('fase 1: a pasta com alteracao embaixo aparece, com o arquivo dentro', pasta?.folder === true && regra !== undefined, 'pasta=' + JSON.stringify(pasta) + ' regra.js=' + JSON.stringify(regra));
+		t.check('fase 1: o evento no disco ainda nao tem viewedAt', semMarca.length === 1 && semMarca[0].viewedAt === undefined, 'eventos=' + semMarca.length + ' viewedAt=' + String(semMarca[0]?.viewedAt));
+
+		// Fase 2: o F7 com a view em uso recolhe, e o foco sai de dentro da arvore.
+		const comFoco = await changedOnlyFocused(page);
+
+		await page.keyboard.press('F7');
+		await delay(1200);
+
+		const recolheu = await changedOnlyExpanded(page);
+
+		t.check('fase 2: o F7 com a view em uso recolhe a arvore', comFoco && recolheu === false, 'foco antes=' + String(comFoco) + ' expandida=' + String(recolheu));
+		t.check('fase 2: o foco sai de dentro da arvore', await changedOnlyFocused(page) === false, 'foco na arvore=' + String(await changedOnlyFocused(page)));
+
+		// Fase 3: ir ate a alteracao. O clique e o gesto padrao das listas do VS Code
+		// (o modo de abertura padrao abre com um clique) e o Enter e o do teclado.
+		const reabriu = await showChangedOnly(page);
+
+		await clickElement(page, changedRow(page, CHANGED_TS_FILE));
+
+		const visto = await waitForChangedState(page, CHANGED_TS_FILE, 'visto');
+		const marcado = await waitForViewedEvent(session, CHANGED_TS_FILE);
+		const abertoPeloClique = await activeEditorName(page);
+		const posicao = await editorPosition(page);
+
+		t.check('fase 3: o clique na arvore abre o arquivo da alteracao', reabriu && abertoPeloClique.includes(CHANGED_TS_FILE), 'arvore aberta=' + String(reabriu) + ' editor=' + JSON.stringify(abertoPeloClique));
+		// O salto seleciona a faixa alterada inteira (E2-T4): o que a barra mostra e o
+		// fim da selecao, entao a conferencia e a linha mais a selecao existindo.
+		t.check('fase 3: o editor cai na linha alterada, com a faixa selecionada', posicao.startsWith('Ln 2,') && posicao.includes('selected'), 'posicao=' + JSON.stringify(posicao) + ' esperado=Ln 2, com selecao');
+		t.check('fase 3: o viewedAt foi gravado no evento do disco', typeof marcado?.viewedAt === 'number', 'viewedAt=' + String(marcado?.viewedAt));
+		t.check('fase 3: o ponto some e o arquivo continua na arvore', visto === 'visto', CHANGED_TS_FILE + '=' + visto);
+
+		// O Enter e o gesto do teclado: fecha o editor e pede a alteracao de novo pela
+		// tecla, com a linha ainda focada. Fechar o editor pode levar o foco embora, e
+		// ai o F7 so devolve o foco — a arvore ja esta aberta.
+		await page.keyboard.press('Control+W');
+		await delay(1200);
+
+		if (!await changedOnlyFocused(page)) {
+			await page.keyboard.press('F7');
+			await delay(1000);
+		}
+
+		const semEditor = await activeEditorName(page);
+		const linhaFocada = await focusedChangedRow(page);
+
+		await page.keyboard.press('Enter');
+		await delay(1800);
+
+		const abertoPeloEnter = await activeEditorName(page);
+
+		t.check('fase 3: o Enter na linha focada abre a alteracao', abertoPeloEnter.includes(CHANGED_TS_FILE), 'antes do Enter=' + JSON.stringify(semEditor) + ' depois=' + JSON.stringify(abertoPeloEnter) + ' linha focada=' + JSON.stringify(linhaFocada));
+
+		// Recolher com a arvore em uso devolve o foco ao editor.
+		await page.keyboard.press('F7');
+		await delay(1200);
+
+		t.check('fase 3: recolher com a arvore em uso devolve o foco ao editor', await changedOnlyExpanded(page) === false && await editorFocused(page), 'expandida=' + String(await changedOnlyExpanded(page)) + ' foco no editor=' + String(await editorFocused(page)));
+
+		// Fase 4: o arquivo que o agente apaga continua na arvore, marcado. A fase 3
+		// terminou com a view recolhida, e recolhida nao ha linha para ler.
+		const abertaNaFase4 = await showChangedOnly(page);
+
+		writeWorkspaceFile(workspace, CHANGED_REMOVED_FILE, CHANGED_REMOVED_CONTENT);
+		await waitUntilQuiet(session.ledger);
+
+		const criado = await waitForChangedRow(page, CHANGED_REMOVED_FILE);
+
+		rmSync(join(workspace, CHANGED_REMOVED_FILE));
+		await waitUntilQuiet(session.ledger);
+
+		const removido = await waitForChangedState(page, CHANGED_REMOVED_FILE, 'removido');
+		const eventosDoRemovido = session.ledger.eventsOf(CHANGED_REMOVED_FILE);
+
+		t.check('fase 4: o arquivo criado pelo agente aparece na arvore', abertaNaFase4 && criado?.unviewed === true, CHANGED_REMOVED_FILE + '=' + JSON.stringify(criado));
+		t.check('fase 4: o arquivo removido continua na arvore, marcado', removido === 'removido', CHANGED_REMOVED_FILE + '=' + removido + ' eventos=' + JSON.stringify(eventosDoRemovido.map(event => event.afterHash === undefined ? 'remocao' : 'escrita')));
+
+		// Abrir o removido avisa, em vez de abrir editor: o aviso e a prova de que o
+		// produto leu a alteracao como remocao.
+		const avisosAntes = await notificationTexts(page);
+
+		await clickElement(page, changedRow(page, CHANGED_REMOVED_FILE));
+
+		const avisos = await waitForNewNotification(page, avisosAntes);
+		const depoisDoAviso = await activeEditorName(page);
+
+		t.check('fase 4: abrir o removido avisa em vez de abrir editor', avisos.some(texto => texto.includes('removed the file')) && !depoisDoAviso.includes(CHANGED_REMOVED_FILE), 'avisos=' + JSON.stringify(avisos) + ' editor=' + JSON.stringify(depoisDoAviso));
+
+		// Fase 5: cada linha desenhada concorda com o ledger, e o que sobra e medicao.
+		const desenhados = (await changedRows(page)).filter(row => !row.folder);
+		const porArquivo = new Map<string, { recente: ILedgerEvent; pendente: boolean }>();
+
+		for (const event of session.ledger.events()) {
+			const nome = fileNameOf(event.fileUri);
+			const conhecido = porArquivo.get(nome);
+
+			if (conhecido === undefined) {
+				porArquivo.set(nome, { recente: event, pendente: event.viewedAt === undefined });
+
+				continue;
+			}
+
+			conhecido.pendente = conhecido.pendente || event.viewedAt === undefined;
+
+			if (event.timestamp >= conhecido.recente.timestamp) {
+				conhecido.recente = event;
+			}
+		}
+
+		// O esperado segue a mesma ordem do desenho: removido ganha de novo, e novo ganha de visto.
+		const esperado = new Map<string, string>([...porArquivo].map(([nome, dados]) => [nome, dados.recente.afterHash === undefined ? 'removido' : dados.pendente ? 'novo' : 'visto']));
+		const divergentes = desenhados.filter(row => esperado.get(row.name) !== changedStateOf(row));
+		const semEvento = desenhados.filter(row => !esperado.has(row.name));
+
+		t.check('fase 5: cada linha da arvore mostra o mesmo estado que o ledger', divergentes.length === 0, 'divergentes=' + JSON.stringify(divergentes.map(stateOfChangedRow)) + ' esperado=' + JSON.stringify([...esperado]));
+		t.check('fase 5: nenhum arquivo sem alteracao aparece na arvore', semEvento.length === 0, 'extras=' + JSON.stringify(semEvento.map(row => row.name)) + ' arvore=' + JSON.stringify(desenhados.map(stateOfChangedRow)));
+
+		// O que sobra e medicao, e nao reprova: o comando na Paleta e o tooltip da linha.
+		const paleta = await openCommandPalette(page, 'Show Only Changed Files');
+		const rotulos = await rowLabels(paleta);
+
+		await page.keyboard.press('Escape');
+		await delay(500);
+
+		t.check('medicao (nao reprova): linhas da arvore, tooltip e o comando na Paleta', true, 'arquivos=' + JSON.stringify(desenhados.map(stateOfChangedRow)) + ' pastas=' + JSON.stringify((await changedRows(page)).filter(row => row.folder).map(row => row.name)) + ' tooltip=' + JSON.stringify(await changedRowTooltip(page, WARM_UP_FILE)) + ' paleta=' + JSON.stringify(rotulos.slice(0, 2)));
 	}
 },
 ];
