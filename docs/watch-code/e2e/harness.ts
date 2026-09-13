@@ -54,6 +54,8 @@ export interface ILedgerEvent {
 	readonly linesChanged?: readonly (readonly [number, number])[];
 	readonly timestamp: number;
 	readonly status: string;
+	/** Instante em que o desenvolvedor foi até a alteração; ausente é "ainda nova". */
+	readonly viewedAt?: number;
 }
 
 /**

@@ -242,4 +242,35 @@ suite('changeLedgerService', () => {
 
 		assert.deepStrictEqual((await ledger.readAll()).map(event => event.id), ['E-0001']);
 	});
+
+	test('marks a change as viewed without touching the rest of the event', async () => {
+		const ledger = createLedger();
+		const event = changeEvent();
+
+		await ledger.record(event);
+
+		const viewed = await ledger.markViewed(event.id, 1767225600001);
+
+		// O evento inteiro, e não só a marca: nenhum outro campo pode mudar.
+		assert.deepStrictEqual(viewed, { ...event, viewedAt: 1767225600001 });
+		assert.deepStrictEqual(await ledger.readById(event.id), { ...event, viewedAt: 1767225600001 });
+	});
+
+	test('keeps the first moment when a change is marked twice', async () => {
+		const ledger = createLedger();
+		const event = changeEvent();
+
+		await ledger.record(event);
+		await ledger.markViewed(event.id, 1767225600001);
+
+		await ledger.markViewed(event.id, 1767225600999);
+
+		assert.strictEqual((await ledger.readById(event.id))?.viewedAt, 1767225600001);
+	});
+
+	test('marks nothing when the event does not exist', async () => {
+		const ledger = createLedger();
+
+		assert.strictEqual(await ledger.markViewed('E-9999', 1767225600001), undefined);
+	});
 });

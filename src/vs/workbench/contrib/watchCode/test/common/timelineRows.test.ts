@@ -43,7 +43,8 @@ suite('watchCode timelineRows', () => {
 			lines: '',
 			clock: '14:32',
 			fullTime: '2026-03-12 14:32',
-			attribution: 'observed'
+			attribution: 'observed',
+			unviewed: true
 		}]);
 	});
 
@@ -91,6 +92,14 @@ suite('watchCode timelineRows', () => {
 
 	test('a data completa sai no formato do tooltip', () => {
 		assert.strictEqual(formatFullTime(localTimestamp(9, 5)), '2026-03-12 09:05');
+	});
+
+	test('a alteracao sem viewedAt sai como nova', () => {
+		assert.deepStrictEqual(buildTimelineRows([changeEvent()]).map(row => row.unviewed), [true]);
+	});
+
+	test('a alteracao com viewedAt sai como vista', () => {
+		assert.deepStrictEqual(buildTimelineRows([changeEvent({ viewedAt: 1767225600001 })]).map(row => row.unviewed), [false]);
 	});
 
 	test('a origem chega a linha como veio do evento', () => {

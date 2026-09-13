@@ -258,6 +258,21 @@ const FOLDER_TRACKED_FILE = 'src/legado/antigo.ts';
 /** Pasta que ja existia, vazia e fora do git: o residuo que esta tarefa nao corrige. */
 const FOLDER_EMPTY = 'src/vazio';
 
+/**
+ * Arquivos do T-0012, um por extensao de codigo.
+ *
+ * Os tres nascem da escrita de fora, com o app aberto: e o que o produto
+ * observa. O .cs existe para provar que o selo nao depende da linguagem.
+ */
+const VIEWED_TS_FILE = 'marcador.ts';
+const VIEWED_JS_FILE = 'segundo.js';
+const VIEWED_CS_FILE = 'terceiro.cs';
+
+/** Versao final de cada arquivo do T-0012. */
+const VIEWED_TS_CONTENT = 'export function marcador(): number {\n\treturn 1;\n}\n';
+const VIEWED_JS_CONTENT = 'function segundo() {\n\treturn 2;\n}\n';
+const VIEWED_CS_CONTENT = 'namespace WatchCode {\n\tpublic static class Terceiro {\n\t}\n}\n';
+
 /** O dialeto de cada arquivo de teste. */
 type Linguagem = 'ts' | 'js' | 'cs';
 
@@ -371,6 +386,66 @@ async function waitForTimelineRows(page: Page, file: string, total: number, time
 	}
 
 	return names;
+}
+
+/**
+ * Nomes das linhas que mostram o ponto de alteracao nova, na ordem.
+ *
+ * O ponto existe em toda linha e some por `visibility`, para os icones ficarem
+ * alinhados: por isso a leitura e de visibilidade, e nao de presenca no DOM.
+ */
+async function timelineUnviewedNames(page: Page): Promise<readonly string[]> {
+	const nomes: string[] = [];
+
+	for (const row of await page.locator('.watch-code-timeline .watch-code-timeline-row').all()) {
+		const ponto = row.locator('.top .badge').first();
+
+		if (await ponto.count() > 0 && await ponto.isVisible()) {
+			nomes.push(await row.locator('.top .name').textContent() ?? '');
+		}
+	}
+
+	return nomes;
+}
+
+/** Descricao do titulo da view: e onde o contador de lotes aparece. */
+async function timelineTitleDescription(page: Page): Promise<string> {
+	const descricao = page.locator(`${TIMELINE_HEADER_SELECTOR} .description`).first();
+
+	return await descricao.count() === 0 ? '' : (await descricao.textContent() ?? '').trim();
+}
+
+/** Quantos lotes o titulo anuncia; nenhum quando nao ha descricao. */
+function batchCountOf(description: string): number {
+	const found = /(\d+)/.exec(description);
+
+	return found ? Number(found[1]) : 0;
+}
+
+/** Espera o titulo anunciar uma quantidade de lotes novos. */
+async function waitForTitleBatches(page: Page, total: number, timeoutMs = EVENT_TIMEOUT_MS): Promise<string> {
+	const deadline = Date.now() + timeoutMs;
+	let descricao = await timelineTitleDescription(page);
+
+	while (batchCountOf(descricao) !== total && Date.now() < deadline) {
+		await delay(300);
+		descricao = await timelineTitleDescription(page);
+	}
+
+	return descricao;
+}
+
+/** Espera o evento de um arquivo ganhar a marca de visualizado. */
+async function waitForViewedEvent(session: ISession, file: string, timeoutMs = EVENT_TIMEOUT_MS): Promise<ILedgerEvent | undefined> {
+	const deadline = Date.now() + timeoutMs;
+	let event = session.ledger.eventsOf(file).pop();
+
+	while ((event === undefined || event.viewedAt === undefined) && Date.now() < deadline) {
+		await delay(300);
+		event = session.ledger.eventsOf(file).pop();
+	}
+
+	return event;
 }
 
 /**
@@ -2038,6 +2113,114 @@ const TESTS: readonly IManualTest[] = [
 		const vazia = session.ledger.events().filter(event => event.fileUri === FOLDER_EMPTY).length;
 
 		t.check('medicao (nao reprova): a pasta vazia que ja existia vira evento?', true, 'pasta vazia=' + vazia);
+	}
+},
+{
+	id: 'T-0012',
+	title: 'Novo e visualizado',
+	run: async (session, t) => {
+		const page = session.page;
+		const workspace = session.paths.workspace;
+
+		// Antes de expandir: a view nasce recolhida, e o contador do titulo existe
+		// justamente para ser visto de fora. Se ele so aparecesse depois de abrir a
+		// lista, nao serviria para nada.
+		const recolhida = await timelineExpanded(page);
+		const tituloRecolhido = await timelineTitleDescription(page);
+
+		t.check('fase 0: o titulo conta os lotes novos com a view recolhida', batchCountOf(tituloRecolhido) === 1, 'titulo=' + JSON.stringify(tituloRecolhido) + ' expandida=' + String(recolhida));
+
+		if (!recolhida) {
+			await toggleTimelineView(page);
+		}
+
+		await waitForTimelineRow(page, WARM_UP_FILE);
+		await waitUntilQuiet(session.ledger);
+
+		// A sonda de aquecimento ja deixou um lote novo na lista: toda conferencia de
+		// contagem e por diferenca, nunca contra zero.
+		const loteInicial = batchCountOf(await timelineTitleDescription(page));
+
+		t.check('fase 1: a sonda de aquecimento ja aparece contada no titulo', loteInicial >= 1, 'lotes=' + loteInicial + ' titulo=' + JSON.stringify(await timelineTitleDescription(page)));
+
+		// Fase 1: a alteracao nasce nova.
+		writeWorkspaceFile(workspace, VIEWED_TS_FILE, VIEWED_TS_CONTENT);
+
+		const linhaDoMarcador = await waitForTimelineRow(page, VIEWED_TS_FILE);
+
+		await waitUntilQuiet(session.ledger);
+
+		const semMarca = session.ledger.eventsOf(VIEWED_TS_FILE);
+
+		t.check('fase 1: a alteracao nova aparece com o ponto', (await timelineUnviewedNames(page)).includes(VIEWED_TS_FILE), 'linhas com ponto=' + JSON.stringify(await timelineUnviewedNames(page)));
+		t.check('fase 1: o evento no disco ainda nao tem viewedAt', semMarca.length === 1 && semMarca[0].viewedAt === undefined, 'eventos=' + semMarca.length + ' viewedAt=' + String(semMarca[0]?.viewedAt));
+		t.check('fase 1: o titulo ganha um lote novo', batchCountOf(await timelineTitleDescription(page)) === loteInicial + 1, 'titulo=' + JSON.stringify(await timelineTitleDescription(page)));
+
+		// Fase 2: ir ate ela e o que a marca.
+		await clickTimelineRow(page, linhaDoMarcador);
+
+		const marcado = await waitForViewedEvent(session, VIEWED_TS_FILE);
+		const tituloDepoisDaVisita = await timelineTitleDescription(page);
+
+		t.check('fase 2: o ponto some da linha visitada', !(await timelineUnviewedNames(page)).includes(VIEWED_TS_FILE), 'linhas com ponto=' + JSON.stringify(await timelineUnviewedNames(page)));
+		t.check('fase 2: o viewedAt foi gravado no evento do disco', typeof marcado?.viewedAt === 'number', 'viewedAt=' + String(marcado?.viewedAt));
+		t.check('fase 2: o resto do evento ficou intacto', marcado?.beforeHash === semMarca[0]?.beforeHash && marcado?.afterHash === semMarca[0]?.afterHash && marcado?.status === semMarca[0]?.status && marcado?.timestamp === semMarca[0]?.timestamp, 'antes=' + String(marcado?.beforeHash) + ' depois=' + String(marcado?.afterHash) + ' status=' + String(marcado?.status) + ' instante=' + String(marcado?.timestamp));
+		t.check('fase 2: o titulo volta ao que era antes dela', batchCountOf(tituloDepoisDaVisita) === loteInicial, 'titulo=' + JSON.stringify(tituloDepoisDaVisita));
+
+		// Fase 3: o lote so fecha quando todas as alteracoes dele forem vistas.
+		await delay(BETWEEN_SESSIONS_MS);
+
+		writeWorkspaceFile(workspace, VIEWED_JS_FILE, VIEWED_JS_CONTENT);
+		await delay(SESSION_WRITE_GAP_MS);
+		writeWorkspaceFile(workspace, VIEWED_CS_FILE, VIEWED_CS_CONTENT);
+
+		await waitUntilQuiet(session.ledger);
+
+		const sessoesDoLote = new Set(session.ledger.eventsOf(VIEWED_JS_FILE).concat(session.ledger.eventsOf(VIEWED_CS_FILE)).map(event => event.sessionId));
+		const tituloDoLote = await waitForTitleBatches(page, loteInicial + 1);
+
+		t.check('fase 3: os dois arquivos entram na mesma sessao', sessoesDoLote.size === 1, 'sessoes=' + sessoesDoLote.size);
+		t.check('fase 3: o titulo ganha um lote, e nao dois', batchCountOf(tituloDoLote) === loteInicial + 1, 'titulo=' + JSON.stringify(tituloDoLote));
+
+		// A navegacao vai pela tecla de proposito: a lista e virtualizada, e so o F5
+		// revela a linha que ficou fora da area visivel.
+		await page.keyboard.press('F5');
+		await delay(1500);
+		await waitForViewedEvent(session, VIEWED_JS_FILE);
+
+		const tituloComUmVisto = await timelineTitleDescription(page);
+
+		t.check('fase 3: visitar uma alteracao do lote nao fecha o lote', batchCountOf(tituloComUmVisto) === loteInicial + 1, 'titulo=' + JSON.stringify(tituloComUmVisto));
+
+		await page.keyboard.press('F5');
+		await delay(1500);
+		await waitForViewedEvent(session, VIEWED_CS_FILE);
+
+		const tituloDoLoteFechado = await waitForTitleBatches(page, loteInicial);
+
+		t.check('fase 3: visitar a ultima alteracao do lote fecha o lote', batchCountOf(tituloDoLoteFechado) === loteInicial, 'titulo=' + JSON.stringify(tituloDoLoteFechado));
+
+		// Fase 4: voltar numa alteracao ja vista nao regrava. As duas passagens de
+		// Shift+F5 caem em alteracoes ja visitadas: nenhuma escrita nova.
+		await page.keyboard.press('Shift+F5');
+		await delay(1500);
+		await page.keyboard.press('Shift+F5');
+		await delay(1500);
+		await waitUntilQuiet(session.ledger);
+
+		const depoisDaVolta = session.ledger.eventsOf(VIEWED_TS_FILE);
+
+		t.check('fase 4: voltar na alteracao ja vista nao regrava nada', depoisDaVolta.length === 1 && depoisDaVolta[0].viewedAt === marcado?.viewedAt, 'eventos=' + depoisDaVolta.length + ' viewedAt=' + String(depoisDaVolta[0]?.viewedAt) + ' antes=' + String(marcado?.viewedAt));
+
+		// Fase 5: cada linha desenhada concorda com o ledger, e o que sobrou sai no singular.
+		const linhasDesenhadas = await timelineRowNames(page);
+		const comPonto = await timelineUnviewedNames(page);
+		const semMarcaLedger = new Set(session.ledger.events().filter(event => event.viewedAt === undefined).map(event => fileNameOf(event.fileUri)));
+		const divergentes = linhasDesenhadas.filter(name => comPonto.includes(name) !== semMarcaLedger.has(name));
+		const tituloFinal = await timelineTitleDescription(page);
+
+		t.check('fase 5: cada linha desenhada mostra ponto exatamente quando o ledger diz', divergentes.length === 0, 'linhas=' + JSON.stringify(linhasDesenhadas) + ' com ponto=' + JSON.stringify(comPonto) + ' sem marca no ledger=' + JSON.stringify([...semMarcaLedger]));
+		t.check('fase 5: sobrou um lote novo, escrito no singular', tituloFinal === '1 new batch', 'titulo=' + JSON.stringify(tituloFinal));
 	}
 },
 ];

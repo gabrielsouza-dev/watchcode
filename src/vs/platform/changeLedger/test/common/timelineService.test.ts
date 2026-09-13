@@ -107,6 +107,10 @@ class GatedLedger implements IChangeLedgerService {
 		return this.inner.readCurrentUnder(folderUri);
 	}
 
+	markViewed(eventId: string, timestamp: number): Promise<ChangeEvent | undefined> {
+		return this.inner.markViewed(eventId, timestamp);
+	}
+
 	recordSnapshot(content: VSBuffer): Promise<string> {
 		return this.inner.recordSnapshot(content);
 	}
@@ -357,5 +361,49 @@ suite('timelineService', () => {
 
 		assert.deepStrictEqual((await timeline.getEvents()).map(event => event.id), ['E-0001']);
 		assert.strictEqual(source.readCount, 2);
+	});
+
+	test('o resumo conta os lotes que ainda têm alteração nova', async () => {
+		await ledger.record(changeEvent({ id: 'E-0001', sessionId: 'S-0001', timestamp: 1000 }));
+		await ledger.record(changeEvent({ id: 'E-0002', sessionId: 'S-0001', fileUri: OTHER_FILE_URI, timestamp: 2000 }));
+		await ledger.record(changeEvent({ id: 'E-0003', sessionId: 'S-0002', fileUri: 'src/vs/base/c.ts', timestamp: 3000 }));
+
+		const timeline = createTimeline();
+
+		await timeline.markViewed('E-0001');
+		await timeline.markViewed('E-0002');
+
+		// O primeiro lote já foi lido inteiro; o segundo continua devendo.
+		assert.deepStrictEqual(await timeline.getSummary(), { changes: 3, unviewedChanges: 1, sessions: 2, unviewedSessions: 1 });
+	});
+
+	test('a marca deixa a lista em memória com o evento visto', async () => {
+		await ledger.record(changeEvent({ id: 'E-0001', timestamp: 1000 }));
+
+		const timeline = createTimeline();
+		const viewed = await timeline.markViewed('E-0001');
+
+		assert.deepStrictEqual((await timeline.getEvents()).map(event => event.viewedAt), [viewed?.viewedAt]);
+		assert.deepStrictEqual((await ledger.readById('E-0001'))?.viewedAt, viewed?.viewedAt);
+	});
+
+	test('marcar um id que não existe devolve undefined', async () => {
+		assert.strictEqual(await createTimeline().markViewed('E-9999'), undefined);
+	});
+
+	test('o aviso da marca sai uma vez por alteração', async () => {
+		await ledger.record(changeEvent({ id: 'E-0001', timestamp: 1000 }));
+
+		const timeline = createTimeline();
+		const avisos: (number | undefined)[] = [];
+
+		disposables.add(timeline.onDidMarkViewed(event => avisos.push(event.viewedAt)));
+
+		const primeira = await timeline.markViewed('E-0001');
+
+		// A segunda visita não acha nada a gravar: um aviso, um instante.
+		await timeline.markViewed('E-0001');
+
+		assert.deepStrictEqual(avisos, [primeira?.viewedAt]);
 	});
 });
