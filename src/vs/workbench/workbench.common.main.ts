@@ -475,6 +475,7 @@ import './contrib/editTelemetry/browser/editTelemetry.contribution.js';
 import './contrib/opener/browser/opener.contribution.js';
 
 // Watch Code
+import './contrib/watchCode/browser/changedOnly.contribution.js';
 import './contrib/watchCode/browser/hiddenViews.contribution.js';
 import './contrib/watchCode/browser/observationControl.contribution.js';
 import './contrib/watchCode/browser/timeline.contribution.js';

@@ -17,34 +17,26 @@ import { MutableDisposable, toDisposable } from '../../../../base/common/lifecyc
 import { joinPath } from '../../../../base/common/resources.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
-import { getCodeEditor } from '../../../../editor/browser/editorBrowser.js';
-import { Selection } from '../../../../editor/common/core/selection.js';
-import { ScrollType } from '../../../../editor/common/editorCommon.js';
 import { localize } from '../../../../nls.js';
-import { ChangeEvent, ChangeEventAttribution, ChangeLineRange } from '../../../../platform/changeLedger/common/changeEvent.js';
+import { ChangeEvent, ChangeEventAttribution } from '../../../../platform/changeLedger/common/changeEvent.js';
 import { ITimelineService } from '../../../../platform/changeLedger/common/timelineService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKey, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { WorkbenchList } from '../../../../platform/list/browser/listService.js';
-import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ViewPane, IViewPaneOptions } from '../../../browser/parts/views/viewPane.js';
-import { IEditorControl } from '../../../common/editor.js';
 import { IViewDescriptorService } from '../../../common/views.js';
-import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { planReveal, RevealMissReason } from '../common/changeReveal.js';
 import { formatUnviewedBatches } from '../common/timelineBadge.js';
 import { NavigationDirection, stepActiveId } from '../common/timelineNavigation.js';
 import { buildTimelineRows, TimelineRow } from '../common/timelineRows.js';
-import { CENTER_ON_REVEAL_SETTING } from './timelineConfiguration.contribution.js';
+import { ChangeOpener } from './changeOpener.js';
 
 /** Altura de cada linha: duas faixas de texto. */
 const TIMELINE_ROW_HEIGHT = 44;
@@ -192,6 +184,9 @@ export class WatchCodeTimelineView extends ViewPane {
 	/** Eventos gravados antes de a lista carregar: aplicados logo depois dela. */
 	private readonly pending: ChangeEvent[] = [];
 
+	/** O salto ate a alteracao, o mesmo da arvore do "so o que mudou". */
+	private readonly opener: ChangeOpener;
+
 	/** Id do evento ativo; ausente enquanto o usuario nao parou em nenhum. */
 	private activeId: string | undefined;
 
@@ -224,13 +219,12 @@ export class WatchCodeTimelineView extends ViewPane {
 		@IOpenerService openerService: IOpenerService,
 		@IThemeService themeService: IThemeService,
 		@IHoverService hoverService: IHoverService,
-		@IEditorService private readonly editorService: IEditorService,
-		@IFileService private readonly fileService: IFileService,
-		@INotificationService private readonly notificationService: INotificationService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@ITimelineService private readonly timelineService: ITimelineService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
+
+		this.opener = this.instantiationService.createInstance(ChangeOpener);
 
 		// A escuta nasce aqui, e nao no corpo: evento gravado antes de a view ser
 		// desenhada nao pode se perder.
@@ -430,22 +424,8 @@ export class WatchCodeTimelineView extends ViewPane {
 		this._onDidChangeActive.fire(this.events.get(id));
 
 		// Ir até a alteração é o que a marca como vista: um ponto de entrada só.
-		void this.markViewed(id);
+		void this.opener.markViewed(id);
 		void this.reveal(this.events.get(id), editorOptions);
-	}
-
-	/**
-	 * Grava que o desenvolvedor foi até esta alteração.
-	 *
-	 * A navegação não espera pelo selo nem depende dele: se a gravação falhar, a
-	 * alteração continua nova e a próxima visita tenta de novo.
-	 */
-	private async markViewed(id: string): Promise<void> {
-		try {
-			await this.timelineService.markViewed(id);
-		} catch {
-			// O selo é acessório ao salto: falhar aqui não muda o que o desenvolvedor vê.
-		}
 	}
 
 	/** O aviso do serviço: a linha daquela alteração perde o ponto e o título recalcula. */
@@ -471,81 +451,17 @@ export class WatchCodeTimelineView extends ViewPane {
 	 *
 	 * A abertura e uma promessa, e a lista nao espera por ela. Se o evento ativo
 	 * mudar enquanto o disco responde — um F5 em rajada —, esta abertura perde a vez
-	 * para a mais recente.
+	 * para a mais recente, e quem decide isso e o `shouldContinue`.
 	 */
 	private async reveal(event: ChangeEvent | undefined, editorOptions?: IEditorOptions): Promise<void> {
 		if (!event) {
 			return;
 		}
 
-		// Sem opcoes vindas do gatilho, valem as do produto: pre-visualizacao e foco
-		// onde estava. Ausente nao e o mesmo que falso: sem isto o editor rouba o foco.
-		const aberturas = editorOptions ?? { preserveFocus: true, pinned: false };
-
-		const resource = this.resolveResource(event.fileUri);
-		const plan = planReveal(event, await this.fileService.exists(resource));
-
-		if (event.id !== this.activeId) {
-			return;
-		}
-
-		if (plan.kind === 'missing') {
-			this.warnMissing(plan.because);
-
-			return;
-		}
-
-		const pane = await this.editorService.openEditor({
-			resource,
-			options: {
-				...aberturas,
-				revealIfOpened: true,
-				ignoreError: true
-			}
+		await this.opener.open(event, this.resolveResource(event.fileUri), {
+			editorOptions,
+			shouldContinue: () => event.id === this.activeId
 		});
-
-		this.revealRange(pane?.getControl(), plan.range);
-	}
-
-	/**
-	 * Poe o cursor na faixa alterada e a deixa visivel.
-	 *
-	 * A posicao e aplicada no editor, e nao pedida por opcao de abertura: num
-	 * arquivo que ja estava aberto o VS Code so reaplica as opcoes, e a rolagem que
-	 * vem delas e suave — que nao anda quando a janela nao esta desenhando quadros.
-	 * Com a posicao na mao, o salto e o mesmo nos dois casos.
-	 *
-	 * A faixa e limitada ao que o arquivo tem hoje: uma entrada historica pode
-	 * apontar para linhas que ja nao existem.
-	 */
-	private revealRange(control: IEditorControl | undefined, range: ChangeLineRange | undefined): void {
-		if (!range) {
-			return;
-		}
-
-		const editor = getCodeEditor(control);
-		const model = editor?.getModel();
-
-		if (!editor || !model) {
-			return;
-		}
-
-		const ultima = Math.min(range[1], model.getLineCount());
-		const primeira = Math.min(range[0], ultima);
-		const selection = new Selection(primeira, 1, ultima, model.getLineMaxColumn(ultima));
-
-		editor.setSelection(selection);
-
-		if (this.centerOnReveal) {
-			editor.revealRangeInCenter(selection, ScrollType.Immediate);
-		} else {
-			editor.revealRangeInCenterIfOutsideViewport(selection, ScrollType.Immediate);
-		}
-	}
-
-	/** A decisao D4: centralizar sempre, ou so rolar quando as linhas estao fora da vista. */
-	private get centerOnReveal(): boolean {
-		return this.configurationService.getValue<boolean>(CENTER_ON_REVEAL_SETTING) ?? true;
 	}
 
 	/** Resolve o caminho relativo do evento, com a mesma regra que a captura usa. */
@@ -553,15 +469,6 @@ export class WatchCodeTimelineView extends ViewPane {
 		const folder = this.workspaceContextService.getWorkspace().folders[0]?.uri;
 
 		return folder ? joinPath(folder, fileUri) : URI.file(fileUri);
-	}
-
-	/** Diz que nao ha o que abrir, sem abrir editor nenhum. */
-	private warnMissing(reason: RevealMissReason): void {
-		const message = reason === 'removed'
-			? localize('watchCode.timeline.fileRemoved', "This change removed the file. Nothing to open.")
-			: localize('watchCode.timeline.fileMissing', "The file of this change is no longer in the workspace.");
-
-		this.notificationService.info(message);
 	}
 
 	/** Poe a selecao da lista no evento ativo, sem que a lista responda de volta. */

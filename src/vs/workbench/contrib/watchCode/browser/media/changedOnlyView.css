@@ -1,0 +1,66 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * Arvore do "so o que mudou", dentro do Explorer.
+ *
+ * O corpo da view recebe a altura e a arvore ocupa o que sobra; a mensagem fica
+ * logo abaixo, para o estado vazio e o de erro.
+ */
+.watch-code-changed-only {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+.watch-code-changed-only .watch-code-changed-only-tree {
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.watch-code-changed-only .watch-code-changed-only-tree.hidden {
+	display: none;
+}
+
+.watch-code-changed-only .watch-code-changed-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	height: 100%;
+	overflow: hidden;
+}
+
+.watch-code-changed-only .watch-code-changed-row .name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/*
+ * O ponto da alteracao nova.
+ *
+ * Escondido sem sair do layout: o espaco fica reservado em toda linha, para os
+ * icones dos arquivos ficarem alinhados entre os vistos e os novos.
+ */
+.watch-code-changed-only .watch-code-changed-row .badge {
+	font-size: 9px;
+	color: var(--vscode-editorInfo-foreground);
+}
+
+.watch-code-changed-only .watch-code-changed-row .badge.hidden {
+	visibility: hidden;
+}
+
+.watch-code-changed-only .watch-code-changed-only-message {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 10px 10px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.watch-code-changed-only .watch-code-changed-only-message.hidden {
+	display: none;
+}
