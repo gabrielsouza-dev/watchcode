@@ -295,6 +295,9 @@ const CHANGED_JS_FILE = CHANGED_FOLDER + '/regra.js';
 const CHANGED_REMOVED_FILE = 'apagado.js';
 const CHANGED_CLEAN_FILE = 'parado.cs';
 
+/** Escrito com a arvore **recolhida**: a escuta da view tem de pegar mesmo assim. */
+const CHANGED_QUIET_FILE = 'durante.cs';
+
 /** Conteudo no HEAD: e o antes da primeira alteracao de mudado.ts. */
 const CHANGED_TS_HEAD_CONTENT = 'export function mudado(): number {\n\treturn 1;\n}\n';
 
@@ -303,6 +306,7 @@ const CHANGED_TS_CONTENT = 'export function mudado(): number {\n\treturn 2;\n}\n
 const CHANGED_JS_CONTENT = 'function regra() {\n\treturn 3;\n}\n';
 const CHANGED_REMOVED_CONTENT = 'function apagado() {\n\treturn 4;\n}\n';
 const CHANGED_CLEAN_CONTENT = 'namespace WatchCode {\n\tpublic static class Parado {\n\t}\n}\n';
+const CHANGED_QUIET_CONTENT = 'namespace WatchCode {\n\tpublic static class Durante {\n\t}\n}\n';
 
 /** Cabecalho da view do so o que mudou. */
 const CHANGED_ONLY_HEADER_SELECTOR = '.pane-header:has-text("Changed Only")';
@@ -2729,8 +2733,17 @@ let abriu = 'ja estava aberta';
 		t.check('fase 2: o foco sai de dentro da arvore', await changedOnlyFocused(page) === false, 'foco na arvore=' + String(await changedOnlyFocused(page)));
 
 		// Fase 3: ir ate a alteracao. O clique e o gesto padrao das listas do VS Code
-		// (o modo de abertura padrao abre com um clique) e o Enter e o do teclado.
+		// (o modo de abertura padrao abre com um clique) e o Enter e o do teclado. Antes
+		// de abrir, a escrita de fora acontece com a arvore **recolhida**: a escuta nasce
+		// na construcao da view, entao a alteracao tem de estar la quando ela abrir — e
+		// abrir de novo nao desenha o corpo outra vez.
+		writeWorkspaceFile(workspace, CHANGED_QUIET_FILE, CHANGED_QUIET_CONTENT);
+		await waitUntilQuiet(session.ledger);
+
 		const reabriu = await showChangedOnly(page);
+		const durante = await waitForChangedRow(page, CHANGED_QUIET_FILE);
+
+		t.check('fase 3: a escrita com a arvore recolhida ja esta na arvore ao abrir', reabriu && durante?.unviewed === true, CHANGED_QUIET_FILE + '=' + JSON.stringify(durante));
 
 		await clickElement(page, changedRow(page, CHANGED_TS_FILE));
 
