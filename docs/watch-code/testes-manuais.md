@@ -1524,6 +1524,163 @@ linha do produto no log do perfil. Rodado de novo, o cenário passou inteiro.
 
 **aprovado.**
 
+---
+
+## T-0013 — Arquivos alterados no Explorer
+
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | **E2-T7 — Arquivos alterados no Explorer** |
+| Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0013` |
+| Situação | aprovado |
+| Data de execução | 13/09/2026 |
+
+### Objetivo
+
+Provar que a **árvore de arquivos** conta o que o agente fez, sem depender da linha do tempo: o
+arquivo que o agente tocou ganha **cor**, o que ainda não foi olhado ganha também o **ponto**, e a
+pasta sinaliza enquanto houver pendência embaixo dela.
+
+O teste de unidade prova a regra pura: quais arquivos o ledger marca como tocados e pendentes. O que
+ele não prova é o que só existe com a árvore montada — que a decoração chega ao rótulo da linha, que
+ela passa pelo `IDecorationsService` do próprio VS Code (o mesmo que o git usa para decorar os arquivos
+deste projeto), que ela acompanha a marca de visualizado e que o tooltip é o texto do produto. Nada
+disso cabe em teste de unidade.
+
+### Pré-condições
+
+- Build atualizado: `npm run transpile-client` (o arnês aborta se o `out/` estiver mais velho que as
+  pastas de `src/vs` que ele acompanha).
+- O workspace e o perfil isolado são criados pelo próprio arnês, em `%TEMP%/watchcode-manual/t-0013`.
+- Três arquivos nascem durante o cenário, um por extensão de código: `decorado.ts`, `pasta-e2t7/regra.js`
+  (para haver uma pasta com pendência) e `intocado.cs`. O último é escrito **antes** de o app subir, de
+  propósito: a observação nunca o leu, então ele é o controle negativo — arquivo sem evento não pode ter
+  decoração nenhuma.
+- A sonda de aquecimento (`aquecimento.ts`) já está decorada na árvore quando o cenário começa: toda
+  conferência é de **estado lido**, nunca de contagem contra zero.
+
+### Passos
+
+1. Abra a IDE no workspace observado, com perfil próprio, e confirme a observação pela sonda: escreva
+   `aquecimento.ts` e espere o evento dele no ledger.
+2. **Fase 0** — sem abrir a view **Timeline** (ela nasce recolhida), olhe a árvore de arquivos:
+   `aquecimento.ts` aparece com a cor de decorado e com o ponto de "ainda não olhado", e `intocado.cs`,
+   que a observação nunca viu, aparece limpo.
+3. **Fase 1** — escreva de fora, como faria um agente, o arquivo `decorado.ts`. Espere o ledger sossegar
+   e confira: a linha dele na árvore ganha cor e ponto, e o arquivo do evento no disco continua **sem**
+   `viewedAt`.
+4. **Fase 2** — vá até a alteração com o **F5**. Confira: o ponto some da linha, a **cor permanece** e o
+   `viewedAt` foi gravado no evento no disco.
+5. **Fase 3** — escreva `decorado.ts` de novo. Confira: o arquivo que já era visto **volta** a mostrar o
+   ponto.
+6. **Fase 4** — escreva `pasta-e2t7/regra.js`. Confira: a **pasta** aparece com o sinal de pendência.
+   Depois vá até a alteração e confira: o sinal da pasta some, e o arquivo de dentro continua com a cor.
+   (A pasta já vai estar aberta: o Explorer revela o arquivo ativo no editor.)
+7. **Fase 5** — compare a árvore com o ledger: cada linha desenhada mostra o mesmo estado que o evento
+   dela, e nenhum arquivo sem evento aparece decorado.
+8. Confira o log do perfil: nenhuma linha de erro ou aviso escrita pelo produto.
+
+### Resultado esperado
+
+- Passo 2: `aquecimento.ts` com cor e ponto, `intocado.cs` limpo e a timeline ainda **recolhida** — a
+  decoração é do dado, e não da view.
+- Passo 3: `decorado.ts` com cor e ponto, e `viewedAt=undefined` no arquivo do evento.
+- Passo 4: `decorado.ts` só com a cor (`tocado`) e `viewedAt` numérico no disco.
+- Passo 5: `decorado.ts` de volta a `novo`, com dois eventos no ledger.
+- Passo 6: a pasta `pasta-e2t7` com o sinal enquanto houver pendência e sem sinal depois da visita, e
+  `regra.js` com a cor mantida.
+- Passo 7: nenhuma linha divergente entre árvore e ledger, e o tooltip do rótulo trazendo o texto do
+  produto junto do caminho do arquivo.
+- Passo 8: nenhuma linha `[error]` ou `[warning]` com o prefixo `[watchCode]` em `main.log` ou
+  `window1/renderer.log`.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 13/09/2026. As **quatorze** conferências do
+cenário:
+
+```text
+T-0013 — Arquivos alterados no Explorer
+      janela montada em 12s
+      ledger: C:\Users\Gabriel S\AppData\Local\Temp\watchcode-manual\t-0013\user-data\User\workspaceStorage\b0b36c5d63116b5c93794c52be6f3ac4\changeLedger
+      observacao de pe: a sonda foi registrada em 2026-09-13T16:58:50.538Z
+  ok    fase 0: o arquivo que o agente tocou aparece com cor e selo — sonda=novo arvore=["aquecimento.ts=novo","intocado.cs=limpo"]
+  ok    fase 0: o arquivo que o agente nunca tocou nao tem decoracao — intocado=limpo
+  ok    fase 0: a arvore ja mostra a decoracao com a timeline recolhida — timeline expandida=false
+  ok    fase 1: a escrita externa deixa o arquivo com cor e selo na arvore — decorado.ts=novo arvore=["aquecimento.ts=novo","decorado.ts=novo","intocado.cs=limpo"]
+  ok    fase 1: o evento no disco ainda nao tem viewedAt — eventos=1 viewedAt=undefined
+  ok    fase 2: ir ate a alteracao apaga o selo e mantem a cor — decorado.ts=tocado
+  ok    fase 2: o viewedAt foi gravado no evento do disco — viewedAt=1789318766834
+  ok    fase 3: escrita nova num arquivo ja visto faz o selo voltar — decorado.ts=novo eventos=2
+  ok    fase 4: a pasta com alteracao pendente mostra o sinal — pasta=novo arvore=["pasta-e2t7=novo","aquecimento.ts=tocado","decorado.ts=novo","intocado.cs=limpo"]
+  ok    fase 4: depois da visita a pasta volta ao normal — pasta=limpo
+  ok    fase 4: o arquivo da pasta continua com a cor depois da visita — regra.js=tocado abriu=ja estava aberta arvore=["pasta-e2t7=limpo","regra.js=tocado","aquecimento.ts=tocado","decorado.ts=tocado","intocado.cs=limpo"]
+  ok    fase 5: cada linha desenhada mostra o mesmo estado que o ledger — divergentes=[] esperado=[["aquecimento.ts","tocado"],["decorado.ts","tocado"],["regra.js","tocado"]] arvore=["pasta-e2t7=limpo","regra.js=tocado","aquecimento.ts=tocado","decorado.ts=tocado","intocado.cs=limpo"]
+  ok    medicao (nao reprova): linhas decoradas na arvore — decoradas=["regra.js=tocado","aquecimento.ts=tocado","decorado.ts=tocado"] rotulo="C:\\Users\\Gabriel S\\AppData\\Local\\Temp\\watchcode-manual\\t-0013\\workspace\\aquecimento.ts • Changed by the agent"
+  ok    log: o produto nao escreveu erro nem aviso — linhas=64 problemas=[]
+
+veredito: PASSOU (1 testes manuais)
+```
+
+O arnês inteiro — os **treze** cenários — também passou na mesma data, com o T-0013 no fim da fila:
+`veredito: PASSOU (13 testes manuais)`.
+
+### Leitura linha a linha
+
+- A **fase 0** é a conferência que separa a decoração do resto: `arvore=["aquecimento.ts=novo","intocado.cs=limpo"]`
+  diz, na mesma leitura, que o arquivo observado está marcado e que o arquivo sem evento não está. E
+  `timeline expandida=false` prova que a árvore já mostrava tudo isso **com a view da timeline fechada**,
+  que é como ela nasce.
+- A **fase 1** mostra os dois lados: `decorado.ts=novo` na árvore e `viewedAt=undefined` no evento. A cor
+  e o ponto vêm do mesmo dado que a timeline usa; nada foi gravado ainda.
+- A **fase 2** é a prova do par cor + ponto: `decorado.ts=tocado` — a cor ficou, o ponto saiu. O
+  `viewedAt=1789318766834` no arquivo do evento é o que garante que a decoração está lendo o disco, e
+  não um estado de memória que sumiria ao fechar o app.
+- A **fase 3** prova que o ponto volta: `decorado.ts=novo eventos=2`. Um arquivo já visitado que recebe
+  alteração nova é pendente outra vez — a cor nunca tinha ido embora.
+- A **fase 4** é o caso da pasta: `pasta=novo` enquanto há pendência embaixo dela e `pasta=limpo` depois
+  da visita, com `regra.js=tocado` mantendo a cor. O campo `abriu=ja estava aberta` registra um achado
+  do próprio cenário: quem abriu a pasta foi o **Explorer**, revelando o arquivo ativo que o F5 abriu no
+  editor — o passo não precisou clicar.
+- A **fase 5** é a conferência cruzada: `divergentes=[]` comparando a árvore com o ledger evento por
+  evento. As listas de `esperado` e `arvore` ficam no detalhe justamente para que a igualdade seja
+  auditável, e não apenas afirmada.
+- A **medição** guarda as duas provas que não reprovam ninguém: quais linhas estão decoradas e o texto
+  do rótulo — `...\aquecimento.ts • Changed by the agent`. É o tooltip do produto, no idioma do produto,
+  colado no caminho do arquivo pelo próprio VS Code (`labels.ts`).
+
+**Sobre o que a árvore mostra:** como toda lista do VS Code, a árvore é virtualizada — só existe linha
+para o que está à vista. Por isso as conferências são sempre sobre as linhas desenhadas, e a fase 5
+compara linha a linha em vez de comparar totais. É o mesmo limite já registrado no T-0012.
+
+### Histórico de execução
+
+**Primeira execução: reprovou em sete conferências, com a árvore inteira sem decoração.** O sintoma era
+`sonda=limpo` em todas as fases, com o ledger correto — os eventos estavam lá, os pontos da timeline
+também. A causa: contribuição de workbench só existe se o módulo dela for **importado**, e a
+`timelineDecorations.contribution.ts` não estava em `src/vs/workbench/workbench.common.main.ts`. O
+provedor nunca subia; a decoração não tinha a quem perguntar. Corrigido o import, a execução seguinte
+passou. Ficou registrado como divergência da SPEC, que não previa esse arquivo.
+
+**Segunda execução: uma conferência reprovou, e o erro era do cenário.** O passo 6 clicava na linha da
+pasta para abrir, e a conferência seguinte achava `regra.js=ausente`. O que aconteceu foi o contrário do
+que o passo queria: o **Explorer já tinha aberto a pasta**, porque revela no diretório o arquivo ativo —
+o F5 do passo anterior abriu `regra.js` no editor. O clique, então, **recolheu** a pasta. A correção foi
+no cenário: conferir primeiro o que já está na tela e só clicar se a pasta estiver fechada. Com isso a
+fase registra `abriu=ja estava aberta`, que é a prova do que de fato aconteceu.
+
+**Erro de compilação pego antes da validação.** O `typecheck-client` acusou `TS6138` no provedor: o
+parâmetro `contextService` estava declarado como propriedade (`private readonly`) e nunca era lido. A
+correção — parâmetro simples, já que o valor é usado na construção — foi feita ainda na etapa Developer.
+
+**Uma execução do typecheck morreu por falta de memória.** `npm run typecheck-client` abortou com
+`fatal error: out of memory` no `tsgo`, com o app da tarefa anterior ainda aberto na máquina. Rodado de
+novo com a máquina livre, saiu com código 0. Não tem relação com esta tarefa.
+
+### Situação
+
+**aprovado.**
+
 
 
 

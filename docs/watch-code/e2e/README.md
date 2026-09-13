@@ -143,6 +143,7 @@ fonte que a leitura manual consultava.
 | T-0010 | a sessão inteira: seis alterações numa sessão, o painel conferido contra o ledger e a travessia inteira pelo teclado |
 | T-0012 | o selo de novo/visualizado, em cinco fases: a alteração nasce com o ponto e sem `viewedAt` no evento, ir até ela grava a marca no **próprio evento** e apaga o ponto, o lote só fecha quando todas as alterações dele forem vistas, voltar numa já vista não regrava, e a lista e o ledger concordam |
 | T-0011 | a pasta não é alteração, em cinco fases: a pasta sozinha não mexe no ledger, o arquivo dentro dela vira o único evento, a pasta removida não vira evento (pela memória da observação e, numa pasta já existente, pelo git) e **leva junto** o arquivo que a observação conhece sob ela, e o resíduo é medido |
+| T-0013 | a árvore de arquivos decorada, em seis fases: o arquivo que o agente tocou nasce com cor e ponto na própria árvore, o arquivo que ele nunca tocou não tem decoração, ir até a alteração apaga o ponto e mantém a cor, escrita nova no arquivo já visto faz o ponto voltar, a pasta sinaliza enquanto houver pendência embaixo dela, e cada linha desenhada mostra o mesmo estado que o ledger |
 
 O Playwright comanda a interface pelo depurador do próprio app: lê o texto, o ícone
 e o rótulo de acessibilidade do indicador, passa o mouse para pegar o tooltip, abre a

@@ -224,7 +224,7 @@ Só há **um** lado de código no par antes/depois: o trecho atual. O "depois" �
 
 Slug sugerido para a SPEC: o próprio id em minúsculas (ex.: `e1-t2-ledger-snapshots`).
 
-**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **158 casos no `changeLedger` e 45 no `watchCode`**.
+**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **158 casos no `changeLedger` e 53 no `watchCode`**.
 
 ### Etapa E0 — Enxugamento do fork
 
@@ -316,7 +316,7 @@ tarefa própria, se ela vier a existir.
 | E2-T4 | Salto ao local | Abrir o arquivo, revelar e selecionar as linhas; tratar arquivo ausente e entrada `history` | E2-T3 | feito (9 testes novos no salto (`watchCode`, 30 → 39) e 12 no produtor de faixa (`changeLedger`, 112 → 124); manual T-0008 e T-0009 aprovados com 25 conferências. O campo `linesChanged` era declarado e lido e **nunca gravado** — sem ele o salto abria o arquivo e parava em `Ln 1, Col 1`; decisão do usuário antecipou um produtor mínimo no gravador, que a E3-T1 troca por hunks. Três defeitos acharam-se no caminho: as setas moviam o foco e não a seleção, o editor roubava o foco a cada salto, e a posição pedida por opção de abertura não movia a vista) |
 | E2-T5 | Fechamento da E2 | Percorrer em sequência todas as alterações de uma sessão do agente | E2-T4 | feito (manual T-0010 aprovado com 24 conferências: seis alterações numa sessão, em `.ts`, `.js` e `.cs`, com uma criação e uma remoção; o painel conferido linha a linha contra o ledger, e a travessia inteira por F5 e Shift+F5, mais a segunda sessão entrando ao vivo. Nenhum defeito apareceu. A sonda do arnês virou `aquecimento.ts`, e os **dez** cenários passaram na mesma execução) |
 | E2-T6 | Novo e visualizado | Selo por alteração, gravado no próprio evento; o lote é **derivado** — fica visualizado quando todas as suas alterações estiverem | E2-T5 | feito (5 testes novos no módulo (`watchCode`, 40 → 45) e 14 no `changeLedger` (144 → 158); manual T-0012 aprovado com 17 conferências, e o arnês inteiro com os **doze** cenários verdes. O selo é o campo `viewedAt` do próprio evento — gravado quando o desenvolvedor **vai até a alteração**, pelo mesmo ponto de entrada de toda a navegação (F5, clique, setas, Enter, duplo clique) — e o lote **não** tem campo: é derivado do `sessionId` e só fecha quando todas as alterações dele estiverem vistas. A superfície do lote é o contador no título da view (D1 = A, aprovada pelo usuário); a lista continua plana, porque agrupar por sessão é entregável da E5-T3. O Tester achou um defeito de verdade: com a view **recolhida**, que é como ela nasce, o contador não existia — a lista só era lida quando o corpo era desenhado. A carga passou para a construção da view) |
-| E2-T7 | Arquivos alterados no Explorer | Decoração nos arquivos que o agente tocou, pelo `IDecorationsService` — sem tocar no Explorer | E2-T6 | pendente |
+| E2-T7 | Arquivos alterados no Explorer | Decoração nos arquivos que o agente tocou, pelo `IDecorationsService` — sem tocar no Explorer | E2-T6 | feito (8 testes novos no módulo (`watchCode`, 45 → 53); manual T-0013 aprovado com 14 conferências, e o arnês inteiro com os **treze** cenários verdes. A decoração é a **opção C**, decidida com o usuário: **cor** de "o agente tocou" em todo arquivo com alteração, e o **ponto** só enquanto houver alteração não vista. A chave é a do próprio recurso (`joinPath` da pasta do workspace com o caminho relativo do evento) e o dado é derivado da lista, sem cópia: o provedor só responde o que o Explorer pergunta. Peso explícito na decoração (1000, o mesmo do chat), porque o serviço ordena os provedores por peso — sem ele, quem venceria a cor do git seria a ordem de registro) |
 | E2-T8 | Só o que mudou | Esconder no Explorer os arquivos que o agente não tocou, com o atalho **F7**; a view própria é a opção recomendada sobre o gancho no core do Explorer | E2-T7 | pendente |
 
 **E2 pronta quando:** o desenvolvedor vê a linha do tempo das alterações do agente e vai
@@ -348,6 +348,24 @@ lista do VS Code, e ficou registrado porque a **E2-T7** vai decorar arquivos no 
 mesmo limite. Ficou medido também o efeito de entrada: evento gravado antes desta tarefa não tem
 `viewedAt` e conta como novo, então o histórico inteiro aparece como pendente até ser percorrido —
 que é a leitura correta de "ninguém olhou ainda".
+
+**Provado na E2-T7:** a árvore de arquivos passou a contar o que o agente fez, sem depender da linha do
+tempo. No app, com as escritas vindas de fora: o arquivo tocado nasce na árvore com **cor e ponto** — e a
+conferência é feita com a view da timeline ainda **recolhida**, provando que a decoração vem do serviço e
+não da lista; ir até a alteração pelo F5 apaga o ponto e **mantém a cor**; escrita nova num arquivo já
+visto faz o ponto **voltar**; a pasta sinaliza enquanto houver pendência embaixo dela e volta ao normal
+depois da visita; e o arquivo que a observação nunca viu — escrito antes de o app subir — não tem
+decoração nenhuma. As linhas desenhadas foram conferidas contra o ledger, evento por evento, e o rótulo
+saiu com o texto do produto: `...\aquecimento.ts • Changed by the agent`.
+
+**O que a E2-T7 deixou medido:** a decoração passa pelo `IDecorationsService`, então **divide o rótulo
+com o git** — num arquivo que também está modificado no git, o nosso ponto toma o lugar da letra do git e
+a nossa cor vence a dele, com o tooltip dos dois provedores aparecendo junto (preço registrado na SPEC).
+Ficou medido também que contribuição de workbench só existe se o módulo for importado em
+`workbench.common.main.ts`: o provedor ficou invisível até o import entrar, e foi a primeira execução do
+T-0013 que pegou isso. E que o Explorer **revela o arquivo ativo e abre a pasta** sozinho — o cenário
+precisou aprender isso antes de clicar, porque o clique numa pasta já aberta a recolhe. Como toda lista do
+VS Code, a árvore é virtualizada: só existe linha para o que está à vista.
 
 ### Etapa E3 — Diff, cores e modos
 
