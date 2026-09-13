@@ -146,6 +146,7 @@ fonte que a leitura manual consultava.
 | T-0014 | o "só o que mudou", em seis fases: a view nasce recolhida e o F7 a abre, a árvore só tem os arquivos que o agente tocou (o intocado não aparece), a escrita de fora entra ao vivo com o nó da pasta, o F7 com a view em uso recolhe e tira o foco de dentro dela, o clique e o Enter abrem a alteração na linha alterada e gravam o `viewedAt` no próprio evento, o arquivo removido continua na árvore marcado e avisa em vez de abrir editor, e cada linha desenhada concorda com o ledger |
 | T-0013 | a árvore de arquivos decorada, em seis fases: o arquivo que o agente tocou nasce com cor e ponto na própria árvore, o arquivo que ele nunca tocou não tem decoração, ir até a alteração apaga o ponto e mantém a cor, escrita nova no arquivo já visto faz o ponto voltar, a pasta sinaliza enquanto houver pendência embaixo dela, e cada linha desenhada mostra o mesmo estado que o ledger |
 | T-0015 | o cálculo de diff, em três fases: duas alterações distantes no mesmo arquivo viram **duas** faixas no evento e no detalhe da linha (e não o trecho inteiro entre elas), o salto cai na primeira faixa com só ela selecionada, e um bloco movido aparece como remoção mais inserção |
+| T-0016 | os documentos virtuais, em cinco fases: o app reabre no mesmo perfil pedindo o antes e o depois na linha de comando, cada documento desenha exatamente o snapshot do seu lado, digitar não altera nada e a aba não fica suja, e o hash que não existe é medido |
 
 O Playwright comanda a interface pelo depurador do próprio app: lê o texto, o ícone
 e o rótulo de acessibilidade do indicador, passa o mouse para pegar o tooltip, abre a
@@ -162,6 +163,10 @@ cai para as coordenadas do elemento.
   As conferências filtram por arquivo, então a sonda não entra na conta.
 - **A leitura espera o ledger sossegar.** Quem julga é o estado final, como faria
   quem abrisse os arquivos do perfil no fim — e não o instante logo após a escrita.
+- **O app pode ser reaberto no mesmo perfil.** O T-0016 fecha e reabre a janela com
+  `--file-uri`, pedindo o antes e o depois do evento: o ledger e os snapshots continuam
+  onde estavam, e essa é a única forma de abrir um documento que só passa a existir
+  depois de a observação gravar o evento.
 - **O log do produto é varrido no fim de cada teste.** Fechado o app, o executor lê
   `main.log` e `window1/renderer.log` do perfil e reprova a execução se achar
   qualquer linha de erro ou aviso com o prefixo `[watchCode]`. O prefixo tem de vir

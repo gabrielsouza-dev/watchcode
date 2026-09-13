@@ -146,8 +146,11 @@ export async function freePort(): Promise<number> {
  * O primeiro argumento é o próprio aplicativo, como em scripts/code.bat, e não a
  * pasta observada: o Electron a trataria como o caminho do app a carregar. A pasta
  * vai por --folder-uri, com o caminho codificado.
+ *
+ * Os argumentos a mais entram no fim da linha: é por onde um cenário pede a
+ * abertura de um documento no arranque, como o --file-uri do T-0016.
  */
-export function launchApp(paths: IAppPaths, cdpPort: number, outputLog: string): ChildProcess {
+export function launchApp(paths: IAppPaths, cdpPort: number, outputLog: string, extraArgs: readonly string[] = []): ChildProcess {
 	const exe = join(REPO_ROOT, '.build', 'electron', 'Code - OSS.exe');
 	const output = openSync(outputLog, 'a');
 	const env: NodeJS.ProcessEnv = {
@@ -171,7 +174,8 @@ export function launchApp(paths: IAppPaths, cdpPort: number, outputLog: string):
 		`--user-data-dir=${paths.userData}`,
 		`--extensions-dir=${paths.extensions}`,
 		'--disable-workspace-trust',
-		`--remote-debugging-port=${cdpPort}`
+		`--remote-debugging-port=${cdpPort}`,
+		...extraArgs
 	], { stdio: ['ignore', output, output], env });
 
 	// O processo filho já herdou o descritor; o executor não precisa mais dele.

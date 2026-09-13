@@ -28,6 +28,7 @@ import {
 	createScratch,
 	delay,
 	findWorkspaceStorageDir,
+	folderUriOf,
 	freePort,
 	git,
 	killApp,
@@ -143,9 +144,17 @@ class Assertions {
 	}
 }
 
-/** App aberto, pasta observada e o ledger dele. */
+/**
+ * App aberto, pasta observada e o ledger dele.
+ *
+ * A janela, o processo e a conexão são mutáveis porque um cenário pode fechar o app
+ * e reabri-lo no mesmo perfil — é o que o T-0016 faz para pedir a abertura de um
+ * documento que só passa a existir depois de o evento ser observado.
+ */
 interface ISession {
-	readonly page: Page;
+	page: Page;
+	child: ChildProcess;
+	browser: Browser;
 	readonly paths: IAppPaths;
 	readonly ledger: LedgerReader;
 	readonly outputLog: string;
@@ -153,8 +162,6 @@ interface ISession {
 
 /** O que `openSession` devolve, para o fechamento acontecer em qualquer caminho. */
 interface IOpenedSession {
-	readonly child: ChildProcess;
-	readonly browser: Browser;
 	readonly session: ISession;
 }
 
@@ -339,6 +346,39 @@ const DIFF_JS_MOVED_CONTENT = [
 	'const valor2 = 2;',
 	'const valor6 = 6;'
 ].join('\n') + '\n';
+
+/**
+ * Arquivo de T-0016: dez linhas, com duas alteracoes distantes.
+ *
+ * O mesmo formato do T-0015 de proposito — o que o T-0016 mede nao e o diff, e sim
+ * o documento virtual que serve cada lado dele.
+ */
+const DOCUMENT_TS_FILE = 'documento.ts';
+const DOCUMENT_TS_TOTAL = 10;
+
+/** As duas linhas que a escrita de fora altera. */
+const DOCUMENT_CHANGED_LINES: readonly number[] = [2, 8];
+
+/** Conteudo no HEAD: a versao que o snapshot do "antes" guarda. */
+const DOCUMENT_TS_HEAD_CONTENT = numberedLines(DOCUMENT_TS_TOTAL);
+
+/** Escrita de fora: a versao que o snapshot do "depois" guarda. */
+const DOCUMENT_TS_CONTENT = numberedLines(DOCUMENT_TS_TOTAL, DOCUMENT_CHANGED_LINES);
+
+/** Hash bem formado que nao esta no store: nao existe documento para ele. */
+const DOCUMENT_MISSING_HASH = 'f'.repeat(40);
+
+/** Esquemas dos documentos virtuais do produto, copiados da contribuicao. */
+const BEFORE_DOCUMENT_SCHEME = 'aih-before';
+const AFTER_DOCUMENT_SCHEME = 'aih-after';
+
+/** Abas da janela, da esquerda para a direita, e a que esta ativa. */
+const TAB_SELECTOR = '.tabs-container .tab';
+const ACTIVE_TAB_SELECTOR = '.tabs-container .tab.active';
+const ACTIVE_TAB_DIRTY_SELECTOR = '.tabs-container .tab.active.dirty';
+
+/** Linhas desenhadas no editor ativo. */
+const DRAWN_LINE_SELECTOR = '.editor-group-container.active .monaco-editor .view-lines .view-line';
 
 /** Cabecalho da view do so o que mudou. */
 const CHANGED_ONLY_HEADER_SELECTOR = '.pane-header:has-text("Changed Only")';
@@ -1158,6 +1198,76 @@ async function visibleLines(page: Page): Promise<readonly number[]> {
 }
 
 /**
+ * URI de um documento virtual, na mesma forma que o produto monta.
+ *
+ * O caminho sai codificado como o `URI` do produto o escreve — sem autoridade e com a
+ * letra do disco em minuscula, que e o que o `URI.file` faz —, e o hash vai na consulta.
+ */
+function documentUri(scheme: string, target: string, hash: string): string {
+	const caminho = folderUriOf(target)
+		.replace(/^file:\/\/\//, scheme + ':/')
+		.replace(/^\/([A-Za-z])%3A/, (_, letra: string) => '/' + letra.toLowerCase() + '%3A');
+
+	return caminho + '?hash=' + hash;
+}
+
+/** O argumento de abertura de um documento, como a linha de comando o recebe. */
+function documentArgument(scheme: string, target: string, hash: string): string {
+	return '--file-uri=' + documentUri(scheme, target, hash);
+}
+
+/** Rotulos das abas abertas, da esquerda para a direita. */
+async function editorTabs(page: Page): Promise<readonly string[]> {
+	return (await page.locator(TAB_SELECTOR).allInnerTexts()).map(collapse);
+}
+
+/** Espera a janela abrir um numero de abas. */
+async function waitForTabs(page: Page, total: number, timeoutMs = EVENT_TIMEOUT_MS): Promise<readonly string[]> {
+	const deadline = Date.now() + timeoutMs;
+	let abas = await editorTabs(page);
+
+	while (abas.length < total && Date.now() < deadline) {
+		await delay(250);
+		abas = await editorTabs(page);
+	}
+
+	return abas;
+}
+
+/** Ativa a aba de uma posicao, como o clique do desenvolvedor faria. */
+async function openTab(page: Page, index: number): Promise<void> {
+	await clickElement(page, page.locator(TAB_SELECTOR).nth(index));
+	await delay(800);
+}
+
+/**
+ * Linhas desenhadas no editor ativo, na ordem da tela.
+ *
+ * A cauda vazia sai: num arquivo que termina com quebra de linha, o editor mostra a
+ * linha vazia depois dela — o mesmo que faz com qualquer arquivo do disco.
+ */
+async function drawnLines(page: Page): Promise<readonly string[]> {
+	const linhas = (await page.locator(DRAWN_LINE_SELECTOR).allInnerTexts())
+		.map(linha => linha.replace(/\u00a0/g, ' ').trimEnd());
+
+	while (linhas.length > 0 && linhas[linhas.length - 1].length === 0) {
+		linhas.pop();
+	}
+
+	return linhas;
+}
+
+/** As linhas de um conteudo de arquivo, como o editor as desenha. */
+function drawnLinesOf(content: string | undefined): readonly string[] {
+	return (content ?? '').split('\n').slice(0, -1).map(linha => linha.trimEnd());
+}
+
+/** Se a aba ativa esta com alteracao nao salva. */
+async function activeTabDirty(page: Page): Promise<boolean> {
+	return await page.locator(ACTIVE_TAB_DIRTY_SELECTOR).count() > 0;
+}
+
+/**
  * Rola a vista do editor arrastando a barra de rolagem.
  *
  * A roda do mouse nao se mostrou confiavel aqui; o arrasto da barra e o mesmo
@@ -1647,27 +1757,48 @@ async function openSession(test: IManualTest, t: Assertions): Promise<IOpenedSes
 
 	await delay(APP_SETTLE_MS);
 
-	const session: ISession = { page, paths, ledger, outputLog };
+	const session: ISession = { page, child, browser, paths, ledger, outputLog };
 
 	await test.beforeWarmUp?.(session, t);
 
 	await warmUpObservation(session);
 
-	return { child, browser, session };
+	return { session };
 }
 
 /** Fecha o app e libera o perfil do cenário. */
-async function closeSession(opened: IOpenedSession): Promise<void> {
-	killApp(opened.child);
-	killLeftovers(opened.session.paths.userData);
+async function closeSession(session: ISession): Promise<void> {
+	killApp(session.child);
+	killLeftovers(session.paths.userData);
 
 	try {
-		await opened.browser.close();
+		await session.browser.close();
 	} catch {
 		// O app já foi fechado por baixo: a conexão morre junto.
 	}
 
 	await delay(2000);
+}
+
+/**
+ * Fecha o app e o reabre no mesmo perfil, com argumentos a mais.
+ *
+ * O perfil e a pasta observada são os mesmos: o ledger e os snapshots continuam onde
+ * estavam, e só a janela é nova. É assim que o T-0016 abre um documento virtual, que
+ * só existe depois de o evento ter sido observado.
+ */
+async function reopenSession(session: ISession, args: readonly string[]): Promise<void> {
+	killApp(session.child);
+	await delay(2000);
+
+	const cdpPort = await freePort();
+
+	session.child = launchApp(session.paths, cdpPort, session.outputLog, args);
+	session.browser = await connectToApp(session.child, cdpPort);
+	session.page = await waitForWorkbenchPage(session.browser, Date.now() + APP_START_TIMEOUT_MS);
+	session.page.setDefaultTimeout(15000);
+
+	await delay(APP_SETTLE_MS);
 }
 
 /** As duas escritas separadas pela pausa de agrupamento, comuns a T-0002 e T-0003. */
@@ -3017,6 +3148,96 @@ let abriu = 'ja estava aberta';
 			t.check('medicao (nao reprova): tooltip da linha', true, 'tooltip=' + JSON.stringify(await timelineRowTooltip(page, indice)) + ' detalhes=' + JSON.stringify(await timelineRowDetails(page)));
 		}
 	},
+	{
+		id: 'T-0016',
+		title: 'Documentos virtuais antes e depois',
+		// O commit da versao anterior e o "antes": sem ele o evento nasce parcial e nao
+		// haveria documento nenhum do lado de antes.
+		prepare: workspace => commitWorkspace(workspace, [[DOCUMENT_TS_FILE, DOCUMENT_TS_HEAD_CONTENT]]),
+		run: async (session, t) => {
+			// A sonda de aquecimento garante a observacao viva antes de medir.
+			await waitForTimelineRow(session.page, WARM_UP_FILE);
+			await waitUntilQuiet(session.ledger);
+
+			// Fase 1: a escrita de fora que produz os dois snapshots do evento.
+			writeWorkspaceFile(session.paths.workspace, DOCUMENT_TS_FILE, DOCUMENT_TS_CONTENT);
+
+			const eventos = await session.ledger.waitForEvents(DOCUMENT_TS_FILE, 1, EVENT_TIMEOUT_MS);
+			await waitUntilQuiet(session.ledger);
+
+			const evento = eventos[eventos.length - 1];
+			const antes = session.ledger.snapshot(evento.beforeHash);
+			const depois = session.ledger.snapshot(evento.afterHash);
+
+			t.check('fase 1: o evento guardou os dois snapshots', antes === DOCUMENT_TS_HEAD_CONTENT && depois === DOCUMENT_TS_CONTENT, 'antes=' + JSON.stringify(antes) + ' depois=' + JSON.stringify(depois));
+
+			// Fase 2: o app reabre no mesmo perfil, pedindo o antes, o depois e um hash que
+			// nao existe. Os documentos so existem agora, porque os snapshots acabaram de
+			// ser gravados pela observacao.
+			const arquivo = targetOf(session.paths.workspace, DOCUMENT_TS_FILE);
+
+			await reopenSession(session, [
+				documentArgument(BEFORE_DOCUMENT_SCHEME, arquivo, evento.beforeHash ?? ''),
+				documentArgument(AFTER_DOCUMENT_SCHEME, arquivo, evento.afterHash ?? ''),
+				documentArgument(BEFORE_DOCUMENT_SCHEME, arquivo, DOCUMENT_MISSING_HASH)
+			]);
+
+			const abas = await waitForTabs(session.page, 2);
+
+			t.check('fase 2: os documentos abrem em abas', abas.length >= 2, 'abas=' + JSON.stringify(abas));
+
+			// Fase 3: o desenho do antes e o snapshot do antes, linha a linha.
+			await openTab(session.page, 0);
+
+			const antesDesenhado = await drawnLines(session.page);
+
+			t.check('fase 3: o documento do antes mostra o snapshot do antes', JSON.stringify(antesDesenhado) === JSON.stringify(drawnLinesOf(antes)), 'desenhado=' + JSON.stringify(antesDesenhado) + ' snapshot=' + JSON.stringify(drawnLinesOf(antes)));
+
+			// Fase 4: idem para o depois, que e a versao com as duas linhas alteradas.
+			await openTab(session.page, 1);
+
+			const depoisDesenhado = await drawnLines(session.page);
+
+			t.check('fase 4: o documento do depois mostra o snapshot do depois', JSON.stringify(depoisDesenhado) === JSON.stringify(drawnLinesOf(depois)), 'desenhado=' + JSON.stringify(depoisDesenhado) + ' snapshot=' + JSON.stringify(drawnLinesOf(depois)));
+
+			// Fase 5: o foco vai para o editor e o desenvolvedor tenta escrever. Num
+			// documento que aceitasse escrita e a descartasse, isto passaria batido; aqui
+			// o texto tem de continuar o mesmo e a aba nao pode ficar suja.
+			await clickElement(session.page, session.page.locator(DRAWN_LINE_SELECTOR).first());
+			await delay(500);
+
+			const focado = await editorFocused(session.page);
+
+			await session.page.keyboard.type('alteracao do desenvolvedor');
+			await delay(1000);
+
+			const depoisDigitado = await drawnLines(session.page);
+			const suja = await activeTabDirty(session.page);
+
+			t.check('fase 5: o editor do documento recebe o foco', focado, 'focado=' + focado);
+			t.check('fase 5: digitar no documento nao altera o conteudo', JSON.stringify(depoisDigitado) === JSON.stringify(depoisDesenhado), 'desenhado=' + JSON.stringify(depoisDigitado));
+			t.check('fase 5: a aba do documento nao fica suja', !suja, 'suja=' + suja);
+
+			// Fase 6: o que sobra e medicao. A margem numera uma linha a mais do que o
+			// arquivo tem — se o arquivo de verdade, no mesmo editor, numerar igual, a
+			// linha vazia do fim e do editor, e nao do documento virtual.
+			t.check('medicao (nao reprova): as abas e a margem do documento', true, 'abas=' + JSON.stringify(abas) + ' margem=' + JSON.stringify(await visibleLines(session.page)) + ' posicao=' + JSON.stringify(await editorPosition(session.page)));
+
+			await openTab(session.page, 2);
+			t.check('medicao (nao reprova): a aba do hash que nao existe', true, 'desenhado=' + JSON.stringify(await drawnLines(session.page)) + ' margem=' + JSON.stringify(await visibleLines(session.page)));
+
+			if (!await timelineExpanded(session.page)) {
+				await toggleTimelineView(session.page);
+			}
+
+			const linha = await waitForTimelineRow(session.page, DOCUMENT_TS_FILE);
+
+			await clickTimelineRow(session.page, linha);
+			await delay(1000);
+
+			t.check('medicao (nao reprova): o arquivo de verdade no mesmo editor', true, 'editor=' + JSON.stringify(await activeEditorName(session.page)) + ' margem=' + JSON.stringify(await visibleLines(session.page)) + ' desenhado=' + JSON.stringify(await drawnLines(session.page)));
+		}
+	},
 ];
 
 /** Abre o cenário, roda o teste, fecha o app e devolve se tudo passou. */
@@ -3036,7 +3257,7 @@ async function runTest(test: IManualTest): Promise<boolean> {
 		}
 	} finally {
 		if (opened) {
-			await closeSession(opened);
+			await closeSession(opened.session);
 		}
 	}
 
