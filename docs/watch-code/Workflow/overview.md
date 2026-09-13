@@ -224,7 +224,7 @@ Só há **um** lado de código no par antes/depois: o trecho atual. O "depois" �
 
 Slug sugerido para a SPEC: o próprio id em minúsculas (ex.: `e1-t2-ledger-snapshots`).
 
-**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **169 casos no `changeLedger` e 66 no `watchCode`**.
+**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **195 casos no `changeLedger` e 66 no `watchCode`**.
 
 ### Etapa E0 — Enxugamento do fork
 
@@ -394,7 +394,7 @@ não caiu na faixa) e passou isolado logo depois, com o mesmo código de salto.
 | ID | Tarefa | Entregável | Depende | Status |
 | --- | --- | --- | --- | --- |
 | E3-T1 | Cálculo de diff | Diff a partir dos snapshots: hunks, ranges e contagem de linhas, com testes. **Substitui o produtor provisório** de `linesChanged` (`changeLedger/common/changedLines.ts`, antecipado na E2-T4 por decisão D9): o arquivo e seus testes saem quando os hunks entrarem, sem os dois conviverem | E2-T5 | feito (22 testes no cálculo de diff e 1 no gravador (`changeLedger`, os 12 do provisório saíram: 158 → 169); `changedLines.ts` e o teste dele foram removidos; manual T-0015 aprovado com **9 conferências** e a varredura de log. Duas alterações distantes passaram a virar **duas** faixas — antes o produtor provisório devolvia uma só, cobrindo o trecho inteiro entre elas) |
-| E3-T2 | Documentos virtuais | Provedores `aih-before:` e `aih-after:` (read-only) servindo os snapshots | E3-T1 | pendente |
+| E3-T2 | Documentos virtuais | Provedores `aih-before:` e `aih-after:` (read-only) servindo os snapshots | E3-T1 | feito (13 testes no contrato de URI e 13 no provedor (`changeLedger`, 169 → 195); manual T-0016 aprovado com **11 conferências**. O documento é endereçado pelo **hash do conteúdo**: o caminho espelha o arquivo real — dá idioma e nome à aba — e a consulta carrega o hash, então o mesmo conteúdo é o mesmo documento, e dois eventos com o mesmo "antes" abrem a mesma aba. Somente leitura em duas camadas: a capacidade `Readonly` trava o editor, com mensagem do produto, e a ausência de capacidade de escrita faz o serviço de arquivos recusar a gravação antes de chegar ao provedor. O esquema é registrado na fase mais cedo do workbench (`BlockStartup`), porque o documento pode ser pedido na abertura da janela) |
 | E3-T3 | Decorações | Linhas adicionadas em verde e removidas em vermelho, gutter e visão geral | E3-T2 | pendente |
 | E3-T4 | Modos de visualização | Somente alterações (com contexto de N linhas), somente anterior e ambos, alternáveis e persistentes | E3-T3 | pendente |
 | E3-T5 | Fechamento da E3 | Ao navegar, o antes/depois fica claro nos três modos | E3-T4 | pendente |
@@ -410,6 +410,19 @@ arquivo: medido no pior caso (conteúdo inteiramente diferente), 4000 linhas cus
 com uma alteração local o recorte por prefixo e sufixo também acerta — o salto continua caindo no começo
 da alteração. Um bloco movido aparece como remoção mais inserção: o produto promete **linha**, não
 movimentação.
+
+**O que a E3-T2 deixou medido:** o documento virtual abriu no aplicativo pelo caminho de sempre — o
+`--file-uri` da linha de comando —, o que provou duas coisas que o teste de unidade não alcança: o
+registro do esquema acontece a tempo de a janela abrir já com o documento (é por isso que a contribuição
+entra na fase mais cedo do workbench), e o editor resolve o idioma pelo caminho que o documento espelha.
+O conteúdo desenhado é o snapshot, linha a linha, e digitar nele não muda nada nem suja a aba. Três
+medições ficaram registradas: num arquivo terminado com quebra de linha o editor mostra a linha vazia do
+fim, e o **arquivo de verdade**, aberto no mesmo editor, mostra igual — a linha é do editor, não do
+documento; um hash que não existe abre uma **aba vazia** na linha de comando, que é o que o VS Code faz
+com qualquer caminho inexistente (no provedor ele é `FileNotFound`, provado em unidade); e a aba do
+documento tem o nome do arquivo real, igual à do arquivo real, porque o rótulo do lado é da E3-T3.
+Como nada no produto abre estes documentos ainda, a prova no app usa o próprio caminho do editor para
+abrir uma URI — a superfície é o que a E3-T3 entrega.
 
 ### Etapa E4 — Ponte `.md` com o agente
 

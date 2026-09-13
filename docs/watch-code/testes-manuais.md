@@ -2005,3 +2005,140 @@ promessa do produto.
 ### Situação
 
 **aprovado.**
+
+## T-0016 — Documentos virtuais antes e depois
+
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | **E3-T2 — Documentos virtuais** |
+| Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0016` |
+| Situação | aprovado |
+| Data de execução | 13/09/2026 |
+
+### Objetivo
+
+Provar que o produto serve o conteúdo dos snapshots como **documento somente leitura**, pelos esquemas
+`aih-before:` e `aih-after:`, e que o que o desenvolvedor vê no editor é exatamente o que o ledger
+guardou — nem normalizado, nem arredondado, nem com uma linha a mais.
+
+O teste de unidade prova o contrato inteiro sem app: o URI, as capacidades declaradas, o conteúdo byte
+a byte, o `FileNotFound` do hash que não existe e a recusa da escrita. O que ele não prova é o caminho
+de verdade: que o workbench registra o esquema a tempo de abrir o documento na subida da janela, que o
+editor resolve o idioma pelo caminho, que o documento nasce travado e que digitar nele não muda nada.
+É a diferença entre "o provedor responde" e "o produto abre".
+
+### Pré-condições
+
+- Build atualizado: `npm run transpile-client` (o arnês aborta se o `out/` estiver mais velho que as
+  pastas de `src/vs` que ele acompanha).
+- O workspace e o perfil isolado são criados pelo próprio arnês, em `%TEMP%/watchcode-manual/t-0016`, já
+  com repositório git e um commit inicial de `documento.ts` — é esse `HEAD` que dá o "antes" do evento;
+  sem ele o evento nasce parcial e não haveria documento nenhum do lado de antes.
+- `documento.ts` tem dez declarações, uma por linha. A escrita de fora altera as linhas **2** e **8**,
+  longe uma da outra, para que o antes e o depois sejam visivelmente diferentes.
+- A sonda de aquecimento (`aquecimento.ts`) garante a observação viva antes de medir.
+- O cenário abre o app **duas vezes**: a primeira para observar a escrita e gravar os snapshots, a
+  segunda — no mesmo perfil, com `--file-uri` — para abrir os documentos. Não há outro caminho hoje:
+  quem abre o diff é a E3-T3.
+
+### Passos
+
+1. Abra a IDE no workspace observado, com perfil próprio, e confirme a observação pela sonda: escreva
+   `aquecimento.ts` e espere o evento dele no ledger.
+2. **Fase 1** — escreva de fora, como faria um agente, a versão de `documento.ts` com as linhas 2 e 8
+   alteradas. Espere o ledger sossegar, leia o evento do arquivo e os dois conteúdos do store.
+3. **Fase 2** — feche o app e reabra no mesmo perfil pedindo, na linha de comando, o documento do antes
+   (`aih-before:`), o do depois (`aih-after:`) e um terceiro com um hash que não existe.
+4. **Fase 3 e 4** — ative a primeira aba e depois a segunda. Confira o que o editor desenha, linha a
+   linha, contra o snapshot que o arnês leu do disco.
+5. **Fase 5** — clique dentro do editor do depois e digite. Confira que o texto não mudou e que a aba
+   não ficou suja.
+6. **Fase 6 (medição)** — veja o que a terceira aba (hash inexistente) desenha e abra o arquivo de
+   verdade pela linha do tempo, para comparar a margem dele com a do documento virtual.
+7. Confira o log do perfil: nenhuma linha de erro ou aviso escrita pelo produto.
+
+### Resultado esperado
+
+- Passo 2: o evento tem os dois hashes e o store devolve os dois conteúdos exatos.
+- Passo 3: as abas dos documentos abrem — três, neste cenário.
+- Passo 4: o desenho do antes é o snapshot do antes, e o do depois é o do depois, linha a linha.
+- Passo 5: o conteúdo continua o mesmo e a aba continua limpa — é somente leitura de verdade.
+- Passo 6: a margem numera as dez linhas do arquivo mais a linha vazia do fim, e o arquivo de verdade
+  numera igual; o hash que não existe não desenha conteúdo nenhum.
+- Passo 7: nenhuma linha `[error]` ou `[warning]` com o prefixo `[watchCode]` em `main.log` ou
+  `window1/renderer.log`.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 13/09/2026 — **na terceira execução** (as duas
+primeiras estão no histórico). As **onze** conferências: as oito do cenário, as três medições e a
+varredura de log.
+
+```text
+T-0016 — Documentos virtuais antes e depois
+      janela montada em 8s
+      ledger: C:\Users\Gabriel S\AppData\Local\Temp\watchcode-manual\t-0016\user-data\User\workspaceStorage\242e9b5defb99b201431d128f517bb5f\changeLedger
+      observacao de pe: a sonda foi registrada em 2026-09-13T21:07:28.797Z
+  ok    fase 1: o evento guardou os dois snapshots — antes="const valor1 = 1;\nconst valor2 = 2;\n..." depois="const valor1 = 1;\nconst valor2 = 0; // alterado pelo agente\n..."
+  ok    fase 2: os documentos abrem em abas — abas=["documento.ts","documento.ts","documento.ts"]
+  ok    fase 3: o documento do antes mostra o snapshot do antes — desenhado=["const valor1 = 1;","const valor2 = 2;","const valor3 = 3;","const valor4 = 4;","const valor5 = 5;","const valor6 = 6;","const valor7 = 7;","const valor8 = 8;","const valor9 = 9;","const valor10 = 10;"] snapshot=["const valor1 = 1;","const valor2 = 2;","const valor3 = 3;","const valor4 = 4;","const valor5 = 5;","const valor6 = 6;","const valor7 = 7;","const valor8 = 8;","const valor9 = 9;","const valor10 = 10;"]
+  ok    fase 4: o documento do depois mostra o snapshot do depois — desenhado=["const valor1 = 1;","const valor2 = 0; // alterado pelo agente","const valor3 = 3;","const valor4 = 4;","const valor5 = 5;","const valor6 = 6;","const valor7 = 7;","const valor8 = 0; // alterado pelo agente","const valor9 = 9;","const valor10 = 10;"] snapshot=["const valor1 = 1;","const valor2 = 0; // alterado pelo agente","const valor3 = 3;","const valor4 = 4;","const valor5 = 5;","const valor6 = 6;","const valor7 = 7;","const valor8 = 0; // alterado pelo agente","const valor9 = 9;","const valor10 = 10;"]
+  ok    fase 5: o editor do documento recebe o foco — focado=true
+  ok    fase 5: digitar no documento nao altera o conteudo — desenhado=["const valor1 = 1;","const valor2 = 0; // alterado pelo agente","const valor3 = 3;","const valor4 = 4;","const valor5 = 5;","const valor6 = 6;","const valor7 = 7;","const valor8 = 0; // alterado pelo agente","const valor9 = 9;","const valor10 = 10;"]
+  ok    fase 5: a aba do documento nao fica suja — suja=false
+  ok    medicao (nao reprova): as abas e a margem do documento — abas=["documento.ts","documento.ts","documento.ts"] margem=[1,2,3,4,5,6,7,8,9,10,11] posicao="Ln 1, Col 18"
+  ok    medicao (nao reprova): a aba do hash que nao existe — desenhado=[] margem=[1]
+  ok    medicao (nao reprova): o arquivo de verdade no mesmo editor — editor="documento.ts" margem=[1,2,3,4,5,6,7,8,9,10,11] desenhado=["const valor1 = 1;","const valor2 = 0; // alterado pelo agente","const valor3 = 3;","const valor4 = 4;","const valor5 = 5;","const valor6 = 6;","const valor7 = 7;","const valor8 = 0; // alterado pelo agente","const valor9 = 9;","const valor10 = 10;"]
+  ok    log: o produto nao escreveu erro nem aviso — linhas=76 problemas=[]
+
+veredito: PASSOU (1 testes manuais)
+```
+
+O bloco acima é a execução do cenário sozinho, com as duas listas da fase 1 encurtadas com `...` (o
+conteúdo inteiro dos snapshots está nos arquivos de evento do perfil). Depois dela o **arnês inteiro** —
+os **dezesseis** cenários — rodou na mesma revisão e passou: `veredito: PASSOU (16 testes manuais)`. Na
+execução completa o T-0016 repetiu as onze conferências, com a janela montada em 8s e `linhas=76` na
+varredura de log.
+
+### Leitura linha a linha
+
+- A **fase 1** é a origem de tudo: o antes é o `HEAD` do repositório do cenário e o depois é a escrita
+  de fora, e é o store do ledger que devolve os dois. Sem eles não haveria documento nenhum para abrir.
+- A **fase 2** é a prova de que o registro do esquema chegou a tempo. O app é reaberto com
+  `--file-uri=aih-before:/d%3A/.../documento.ts?hash=...` e o `canHandleResource` do serviço de arquivos
+  responde que sim — se o provedor não estivesse registrado na fase mais cedo do workbench, o documento
+  seria descartado com uma linha de log e não haveria aba nenhuma. As **três** abas com o mesmo nome são
+  o preço declarado da E3-T2: o rótulo do lado (antes/depois) é da E3-T3.
+- A **fase 3** e a **fase 4** são a promessa da tarefa: o desenho do editor é o snapshot, linha a linha
+  — inclusive as linhas 2 e 8 alteradas no depois. A comparação é contra o conteúdo lido do store pelo
+  próprio arnês, e não contra uma expectativa escrita à mão.
+- A **fase 5** é o somente leitura. O foco entra no editor (`focado=true`), o desenvolvedor digita, e
+  nada muda: o texto continua idêntico e a aba não ganha o ponto de alteração não salva. Um provedor que
+  aceitasse a escrita e a descartasse passaria por aqui sem esta conferência.
+- As **medições** respondem duas perguntas que o cenário não podia julgar:
+  - `margem=[1,…,11]` no documento **e no arquivo de verdade**, no mesmo editor: a linha vazia do fim é
+    do editor, que a mostra em qualquer arquivo terminado com quebra de linha — o documento virtual não
+    inventou linha nenhuma. Foi essa medição que decidiu a comparação do cenário.
+  - `desenhado=[] margem=[1]` na terceira aba: um hash que não existe não vira conteúdo. No provedor ele
+    é `FileNotFound` (provado em unidade); na linha de comando, o VS Code trata um recurso inexistente
+    como arquivo novo e abre uma aba vazia — o comportamento dele para qualquer caminho que não existe,
+    e não conteúdo inventado pelo produto.
+- A **varredura de log** leu 76 linhas do `main.log` e do `renderer.log` do perfil sem achar nada escrito
+  pelo produto.
+
+### Histórico de execução
+
+**A primeira execução reprovou as fases 3 e 4, e o defeito era do cenário.** O desenho do editor trazia
+uma linha vazia a mais no fim (`[..., "const valor10 = 10;", ""]`) contra as dez linhas do snapshot, e a
+comparação do cenário não sabia disso. A correção foi descartar a cauda vazia na leitura do desenho — e
+a **medição do arquivo de verdade** foi acrescentada justamente para dizer de quem era a linha. O arquivo
+real, aberto no mesmo editor, numera `[1,…,11]` igual ao documento virtual. **Nada foi mudado no produto
+por causa disso.**
+
+**A segunda execução já passou**, com nove conferências, e a terceira acrescentou as duas medições
+finais (a terceira aba e o arquivo de verdade) — onze no total.
+
+### Situação
+
+**aprovado.**
+
