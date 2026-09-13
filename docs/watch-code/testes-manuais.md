@@ -1361,5 +1361,169 @@ relação com esta tarefa.
 
 **aprovado.**
 
+---
+
+## T-0012 — Novo e visualizado
+
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | **E2-T6 — Novo e visualizado** |
+| Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0012` |
+| Situação | aprovado |
+| Data de execução | 13/09/2026 |
+
+### Objetivo
+
+Provar que a linha do tempo **distingue o que o desenvolvedor ainda não olhou**: a alteração
+nasce marcada, o marcador some quando ele vai até ela, e o contador do título conta os
+**lotes** que ainda têm alteração pendente — o lote inteiro só sai da conta quando todas as
+alterações dele tiverem sido vistas.
+
+O teste de unidade prova a regra: os quatro números do resumo, a marca gravada no evento e a
+idempotência da gravação. O que ele não prova é o que só existe no aplicativo montado: que o
+ponto aparece na linha, que ele some quando o desenvolvedor vai até a alteração, que o F5
+percorrendo a lista marca o que passa, e que o contador do título acompanha. É também a única
+forma de ver a marca sobrevivendo fora da memória — o arnês lê o **arquivo do evento no disco**
+e encontra o `viewedAt` lá.
+
+### Pré-condições
+
+- Build atualizado: `npm run transpile-client` (o arnês aborta se o `out/` estiver mais velho que
+  as pastas de `src/vs` que ele acompanha).
+- O workspace e o perfil isolado são criados pelo próprio arnês, em `%TEMP%/watchcode-manual/t-0012`.
+- Três arquivos nascem durante o cenário, um por extensão de código: `marcador.ts`, `segundo.js`
+  e `terceiro.cs`. Nenhum deles é preparado antes: o cenário inteiro é de arquivos que a
+  observação vê nascer com o app aberto.
+- A sonda de aquecimento (`aquecimento.ts`) já está na lista quando o cenário começa, e ela também
+  é uma alteração nova: por isso toda conferência de contagem é **por diferença**, nunca contra zero.
+
+### Passos
+
+1. Abra a IDE no workspace observado, com perfil próprio, e confirme a observação pela sonda:
+   escreva `aquecimento.ts` e espere o evento dele no ledger.
+2. **Fase 0** — ainda com a view **recolhida**, olhe o cabeçalho dela: o título já anuncia um lote
+   novo, o da sonda. É o contador fazendo o que promete — ser visto sem abrir a lista.
+3. Expanda a view **Timeline**, no Explorer, e confirme que o título continua o mesmo.
+4. **Fase 1** — escreva de fora, como faria um agente, o arquivo `marcador.ts`. Espere o ledger
+   sossegar e confira três coisas: a linha dele mostra o ponto, o arquivo do evento no disco **não**
+   tem `viewedAt`, e o título passou a contar um lote a mais.
+5. **Fase 2** — clique na linha de `marcador.ts`, como quem vai ler a alteração. Confira: o ponto
+   sumiu da linha, o `viewedAt` foi gravado no arquivo do evento (com os outros campos intactos) e o
+   título voltou ao que era antes.
+6. **Fase 3** — espere a pausa do agrupador e escreva `segundo.js` e `terceiro.cs`, com menos de
+   1,5 s entre um e outro, para caírem na **mesma** sessão. Confira que o título ganhou **um** lote,
+   e não dois, e que os dois arquivos estão na mesma sessão do ledger.
+7. Ainda na fase 3, ande com o **F5** até a primeira das duas alterações novas. Confira que o ponto
+   dela sumiu, mas o título **continua** contando o mesmo lote: ele ainda tem pendência.
+8. Ande mais uma vez com o **F5**, até a segunda. Confira que agora o lote fechou e o título caiu.
+9. **Fase 4** — volte duas vezes com o **Shift+F5**, caindo em alterações já visitadas. Confira no
+   arquivo do evento que o `viewedAt` de `marcador.ts` **não** mudou: quem já foi visto não paga escrita.
+10. **Fase 5** — compare a lista com o ledger: cada linha desenhada mostra ponto exatamente quando o
+   evento dela está sem marca. Confira também que o título ficou no singular, `1 new batch`, porque só
+   a sonda continua pendente.
+11. Confira o log do perfil: nenhuma linha de erro ou aviso escrita pelo produto.
+
+### Resultado esperado
+
+- Passo 2: o título do cabeçalho, **com a lista recolhida**, em `1 new batch`. É a conferência que
+  reprova: um contador que só aparece depois de abrir a lista não serve para nada, porque é fora dela
+  que ele é útil. Foi esta conferência que achou o defeito descrito no histórico de execução.
+- Passo 4: a linha de `marcador.ts` com o ponto, `viewedAt=undefined` no arquivo do evento e o título
+  de `1 new batch` para `2 new batches`.
+- Passo 5: ponto fora, `viewedAt` numérico no disco e o título de volta a `1 new batch`.
+- Passo 6: `sessoes=1` e o título em `2 new batches` — dois arquivos numa sessão são **um** lote.
+- Passo 7: o ponto de `segundo.js` fora e o título **ainda** em `2 new batches`. É a conferência que
+  prova o lote derivado: uma alteração vista não fecha o lote que ainda tem pendência.
+- Passo 8: o título cai para `1 new batch` quando a última alteração do lote é visitada.
+- Passo 9: `viewedAt` igual ao da fase 2, no mesmo evento — nenhuma segunda escrita.
+- Passo 10: nenhuma linha divergente entre lista e ledger, e o título exatamente `1 new batch`.
+- Passo 11: nenhuma linha `[error]` ou `[warning]` com o prefixo `[watchCode]` em `main.log` ou
+  `window1/renderer.log`.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 13/09/2026. As **dezessete** conferências do
+cenário, na execução que valeu — depois da correção descrita no histórico:
+
+```text
+T-0012 — Novo e visualizado
+      janela montada em 18s
+      observacao de pe: a sonda foi registrada em 2026-09-13T15:21:55.780Z
+  ok    fase 0: o titulo conta os lotes novos com a view recolhida — titulo="1 new batch" expandida=false
+  ok    fase 1: a sonda de aquecimento ja aparece contada no titulo — lotes=1 titulo="1 new batch"
+  ok    fase 1: a alteracao nova aparece com o ponto — linhas com ponto=["aquecimento.ts","marcador.ts"]
+  ok    fase 1: o evento no disco ainda nao tem viewedAt — eventos=1 viewedAt=undefined
+  ok    fase 1: o titulo ganha um lote novo — titulo="2 new batches"
+  ok    fase 2: o ponto some da linha visitada — linhas com ponto=["aquecimento.ts"]
+  ok    fase 2: o viewedAt foi gravado no evento do disco — viewedAt=1789312921069
+  ok    fase 2: o resto do evento ficou intacto — antes=undefined depois=554fbc63c0... status=current instante=1789312918831
+  ok    fase 2: o titulo volta ao que era antes dela — titulo="1 new batch"
+  ok    fase 3: os dois arquivos entram na mesma sessao — sessoes=1
+  ok    fase 3: o titulo ganha um lote, e nao dois — titulo="2 new batches"
+  ok    fase 3: visitar uma alteracao do lote nao fecha o lote — titulo="2 new batches"
+  ok    fase 3: visitar a ultima alteracao do lote fecha o lote — titulo="1 new batch"
+  ok    fase 4: voltar na alteracao ja vista nao regrava nada — eventos=1 viewedAt=1789312921069 antes=1789312921069
+  ok    fase 5: cada linha desenhada mostra ponto exatamente quando o ledger diz — linhas=["marcador.ts","segundo.js","terceiro.cs"] com ponto=[] sem marca no ledger=["aquecimento.ts"]
+  ok    fase 5: sobrou um lote novo, escrito no singular — titulo="1 new batch"
+  ok    log: o produto nao escreveu erro nem aviso — linhas=65 problemas=[]
+
+veredito: PASSOU (1 testes manuais)
+```
+
+### Leitura linha a linha
+
+- A **fase 0** é a conferência do que motivou o contador: `titulo="1 new batch" expandida=false` — o
+  número aparece no cabeçalho **sem** a lista aberta. Antes da correção, este campo vinha vazio.
+- A **fase 1** mostra os dois lados do selo ao mesmo tempo: `linhas com ponto=["aquecimento.ts","marcador.ts"]`
+  são a sonda e a alteração nova carimbadas, e `viewedAt=undefined` no arquivo do evento prova que
+  nada foi gravado ainda.
+- A **fase 2** é a prova da persistência: `viewedAt=1789311471372` está no **JSON do evento**, não na
+  memória da view. A conferência do resto do evento (`antes=undefined depois=554fbc63c0... status=current`)
+  mostra que a marca não mexeu em nenhum outro campo — o arquivo novo continua parcial, sem "antes".
+- A **fase 3** é o coração da tarefa. `sessoes=1` diz que as duas escritas caíram no mesmo lote, e a
+  sequência `2 new batches` → `2 new batches` → `1 new batch` é o lote derivado funcionando: visitar
+  uma alteração **não** fecha o lote enquanto a outra estiver pendente, e visitar a última fecha.
+- A **fase 4** compara `viewedAt=1789311471372` com `antes=1789311471372`: o mesmo instante, gravado
+  na fase 2, depois de duas passagens por alterações já vistas. Nenhuma escrita nova.
+- A **fase 5** é a conferência cruzada: `com ponto=[]` contra `sem marca no ledger=["aquecimento.ts"]`
+  — as três linhas desenhadas estão sem ponto, e a sonda, que nunca foi visitada, é a única sem marca
+  no disco. O título em `1 new batch` fecha a conta, e no singular.
+
+**Sobre as linhas desenhadas:** `linhas=["marcador.ts","segundo.js","terceiro.cs"]` são as três linhas
+**desenhadas** naquele instante. A lista é virtualizada e estava rolada no fim, depois de o F5 ter
+revelado a última alteração: a linha de `aquecimento.ts` ficou fora da área visível e não existe no
+DOM. Por isso a conferência é por linha desenhada, e não pelo total da lista.
+
+### Histórico de execução
+
+**Primeira execução: reprovou em três conferências das fases 3 e 5.** O sintoma foi
+`visitar a ultima alteracao do lote fecha o lote — titulo="2 new batches"`, com o ledger mostrando
+`terceiro.cs` sem marca. A causa não era o produto: o cenário clicava na linha **pelo índice**, e a
+lista virtualizada não desenha o que está fora da área visível — a quarta linha não estava no DOM, e
+o clique caiu na linha errada. A correção foi no cenário: as fases 3 e 4 passaram a andar com **F5** e
+**Shift+F5**, que é o que o desenvolvedor faz e o que revela a linha antes de agir. A fase 5 passou a
+conferir linha a linha desenhada em vez de comparar a lista inteira com o ledger. O produto não mudou
+uma linha por causa disso — e a conferência que expôs o problema virou a mais forte do cenário.
+
+**Segunda execução: reprovou na conferência nova da fase 0 — e o defeito era do produto.** A
+conferência perguntava se o contador do título aparece **com a view recolhida**, que é como ela
+nasce (`collapsed: true` no descritor). Resposta: `titulo=""`. A view só lia o ledger quando o
+**corpo** era desenhado, e com a lista recolhida os eventos ficavam numa fila interna esperando a
+abertura — o contador, que existe justamente para ser visto sem abrir nada, nunca aparecia. A
+correção foi na `WatchCodeTimelineView`: a carga passou para a **construção** da view, e não para o
+`renderBody`. Com isso os eventos entram ao vivo pelo mesmo caminho de sempre e o título acompanha
+com a lista fechada. Conferido de novo: `fase 0: o titulo conta os lotes novos com a view recolhida
+— titulo="1 new batch" expandida=false`.
+
+**Uma execução morreu na subida.** A primeira tentativa do T-0012 falhou antes de o cenário começar:
+`a observacao nao registrou nem o arquivo de sonda (aquecimento.ts)`. É a mesma instabilidade de subida
+já registrada no T-0007 (E1-T8) e no T-0011 (E1-T9): o app sobe com a observação morta, sem nenhuma
+linha do produto no log do perfil. Rodado de novo, o cenário passou inteiro.
+
+### Situação
+
+**aprovado.**
+
+
 
 

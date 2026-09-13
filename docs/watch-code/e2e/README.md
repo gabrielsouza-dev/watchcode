@@ -141,6 +141,7 @@ fonte que a leitura manual consultava.
 | T-0008 | o salto ao local por F5, clique, seta, Enter e duplo clique, com o arquivo removido e a entrada histórica |
 | T-0009 | o salto com a centralização desligada: a vista não se move |
 | T-0010 | a sessão inteira: seis alterações numa sessão, o painel conferido contra o ledger e a travessia inteira pelo teclado |
+| T-0012 | o selo de novo/visualizado, em cinco fases: a alteração nasce com o ponto e sem `viewedAt` no evento, ir até ela grava a marca no **próprio evento** e apaga o ponto, o lote só fecha quando todas as alterações dele forem vistas, voltar numa já vista não regrava, e a lista e o ledger concordam |
 | T-0011 | a pasta não é alteração, em cinco fases: a pasta sozinha não mexe no ledger, o arquivo dentro dela vira o único evento, a pasta removida não vira evento (pela memória da observação e, numa pasta já existente, pelo git) e **leva junto** o arquivo que a observação conhece sob ela, e o resíduo é medido |
 
 O Playwright comanda a interface pelo depurador do próprio app: lê o texto, o ícone

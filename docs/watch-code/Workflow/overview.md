@@ -224,7 +224,7 @@ Só há **um** lado de código no par antes/depois: o trecho atual. O "depois" �
 
 Slug sugerido para a SPEC: o próprio id em minúsculas (ex.: `e1-t2-ledger-snapshots`).
 
-**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **144 casos no `changeLedger` e 40 no `watchCode`**.
+**Como ler as contagens de teste das tabelas:** o primeiro número de cada linha é o total do **módulo** no momento da tarefa, contado pelo executor (`npm run test-node`) — a E1 e a E2-T1 contam o módulo `changeLedger`, da E2-T2 em diante conta o módulo `watchCode`. Linhas de módulos diferentes não se comparam entre si, e o número não é a quantidade de arquivos de teste. Hoje o executor roda **158 casos no `changeLedger` e 45 no `watchCode`**.
 
 ### Etapa E0 — Enxugamento do fork
 
@@ -315,7 +315,7 @@ tarefa própria, se ela vier a existir.
 | E2-T3 | Anterior/Próximo | Comandos, keybindings e seleção do evento ativo na lista | E2-T2 | feito (27 testes no módulo, 9 novos; manual T-0006 aprovado com 16 conferências. A tecla é o **F5**, com Shift+F5 para voltar — decidido com o usuário na revisão da fileira de F1 a F12) |
 | E2-T4 | Salto ao local | Abrir o arquivo, revelar e selecionar as linhas; tratar arquivo ausente e entrada `history` | E2-T3 | feito (9 testes novos no salto (`watchCode`, 30 → 39) e 12 no produtor de faixa (`changeLedger`, 112 → 124); manual T-0008 e T-0009 aprovados com 25 conferências. O campo `linesChanged` era declarado e lido e **nunca gravado** — sem ele o salto abria o arquivo e parava em `Ln 1, Col 1`; decisão do usuário antecipou um produtor mínimo no gravador, que a E3-T1 troca por hunks. Três defeitos acharam-se no caminho: as setas moviam o foco e não a seleção, o editor roubava o foco a cada salto, e a posição pedida por opção de abertura não movia a vista) |
 | E2-T5 | Fechamento da E2 | Percorrer em sequência todas as alterações de uma sessão do agente | E2-T4 | feito (manual T-0010 aprovado com 24 conferências: seis alterações numa sessão, em `.ts`, `.js` e `.cs`, com uma criação e uma remoção; o painel conferido linha a linha contra o ledger, e a travessia inteira por F5 e Shift+F5, mais a segunda sessão entrando ao vivo. Nenhum defeito apareceu. A sonda do arnês virou `aquecimento.ts`, e os **dez** cenários passaram na mesma execução) |
-| E2-T6 | Novo e visualizado | Selo por alteração, gravado no próprio evento; o lote é **derivado** — fica visualizado quando todas as suas alterações estiverem | E2-T5 | pendente |
+| E2-T6 | Novo e visualizado | Selo por alteração, gravado no próprio evento; o lote é **derivado** — fica visualizado quando todas as suas alterações estiverem | E2-T5 | feito (5 testes novos no módulo (`watchCode`, 40 → 45) e 14 no `changeLedger` (144 → 158); manual T-0012 aprovado com 17 conferências, e o arnês inteiro com os **doze** cenários verdes. O selo é o campo `viewedAt` do próprio evento — gravado quando o desenvolvedor **vai até a alteração**, pelo mesmo ponto de entrada de toda a navegação (F5, clique, setas, Enter, duplo clique) — e o lote **não** tem campo: é derivado do `sessionId` e só fecha quando todas as alterações dele estiverem vistas. A superfície do lote é o contador no título da view (D1 = A, aprovada pelo usuário); a lista continua plana, porque agrupar por sessão é entregável da E5-T3. O Tester achou um defeito de verdade: com a view **recolhida**, que é como ela nasce, o contador não existia — a lista só era lida quando o corpo era desenhado. A carga passou para a construção da view) |
 | E2-T7 | Arquivos alterados no Explorer | Decoração nos arquivos que o agente tocou, pelo `IDecorationsService` — sem tocar no Explorer | E2-T6 | pendente |
 | E2-T8 | Só o que mudou | Esconder no Explorer os arquivos que o agente não tocou, com o atalho **F7**; a view própria é a opção recomendada sobre o gancho no core do Explorer | E2-T7 | pendente |
 
@@ -331,6 +331,23 @@ avisando em vez de abrir. Uma segunda escrita, no mesmo app, entrou no fim da li
 sem mexer nas anteriores, e rebaixou a entrada antiga do arquivo a `history` — que continua
 navegável, parando na última linha quando o trecho já não existe (a pendência do T-0008,
 com o aviso reservado à E5-T1). As **dez** execuções do arnês de testes manuais passaram.
+
+**Provado na E2-T6:** a linha do tempo passou a dizer o que o desenvolvedor **ainda não olhou**.
+No app, com as escritas vindas de fora: a alteração nasce com o ponto na linha e **sem** `viewedAt`
+no arquivo do evento; ir até ela (pelo clique ou pelo F5) grava a marca no **próprio evento** e
+apaga o ponto; voltar numa já vista não regrava nada — o instante no disco continua o mesmo. O lote
+é o que o título conta: dois arquivos escritos dentro da mesma pausa do agrupador são **um** lote, e
+visitar um deles **não** derruba a contagem — só a última alteração pendente fecha o lote. O
+contador aparece com a lista **recolhida**, que é como a view nasce: foi a conferência que pegou o
+único defeito da tarefa, e o conserto foi ler a lista na construção da view em vez de esperar o
+corpo aparecer.
+
+**O que a E2-T6 deixou medido:** a lista é virtualizada, então a linha que está fora da área visível
+não existe no DOM — e não tem ponto para conferir. Não é defeito, é o comportamento de qualquer
+lista do VS Code, e ficou registrado porque a **E2-T7** vai decorar arquivos no Explorer e tem o
+mesmo limite. Ficou medido também o efeito de entrada: evento gravado antes desta tarefa não tem
+`viewedAt` e conta como novo, então o histórico inteiro aparece como pendente até ser percorrido —
+que é a leitura correta de "ninguém olhou ainda".
 
 ### Etapa E3 — Diff, cores e modos
 
