@@ -395,8 +395,8 @@ não caiu na faixa) e passou isolado logo depois, com o mesmo código de salto.
 | --- | --- | --- | --- | --- |
 | E3-T1 | Cálculo de diff | Diff a partir dos snapshots: hunks, ranges e contagem de linhas, com testes. **Substitui o produtor provisório** de `linesChanged` (`changeLedger/common/changedLines.ts`, antecipado na E2-T4 por decisão D9): o arquivo e seus testes saem quando os hunks entrarem, sem os dois conviverem | E2-T5 | feito (22 testes no cálculo de diff e 1 no gravador (`changeLedger`, os 12 do provisório saíram: 158 → 169); `changedLines.ts` e o teste dele foram removidos; manual T-0015 aprovado com **9 conferências** e a varredura de log. Duas alterações distantes passaram a virar **duas** faixas — antes o produtor provisório devolvia uma só, cobrindo o trecho inteiro entre elas) |
 | E3-T2 | Documentos virtuais | Provedores `aih-before:` e `aih-after:` (read-only) servindo os snapshots | E3-T1 | feito (13 testes no contrato de URI e 13 no provedor (`changeLedger`, 169 → 195); manual T-0016 aprovado com **11 conferências**. O documento é endereçado pelo **hash do conteúdo**: o caminho espelha o arquivo real — dá idioma e nome à aba — e a consulta carrega o hash, então o mesmo conteúdo é o mesmo documento, e dois eventos com o mesmo "antes" abrem a mesma aba. Somente leitura em duas camadas: a capacidade `Readonly` trava o editor, com mensagem do produto, e a ausência de capacidade de escrita faz o serviço de arquivos recusar a gravação antes de chegar ao provedor. O esquema é registrado na fase mais cedo do workbench (`BlockStartup`), porque o documento pode ser pedido na abertura da janela) |
-| E3-T3 | Decorações | Linhas adicionadas em verde e removidas em vermelho, gutter e visão geral | E3-T2 | pendente |
-| E3-T4 | Modos de visualização | Somente alterações (com contexto de N linhas), somente anterior e ambos, alternáveis e persistentes | E3-T3 | pendente |
+| E3-T3 | Decorações | Linhas adicionadas em verde e removidas em vermelho, gutter e visão geral | E3-T2 | pendente — **com anotações da E3-T2**: rótulo do lado (`(Before)`/`(After)`), ação explícita de abrir o diff, a regra de pasta do workspace multi-raiz e a medição de binário e arquivo grande (ver "O que a E3-T2 deixou para as próximas tarefas", abaixo) |
+| E3-T4 | Modos de visualização | Somente alterações (com contexto de N linhas), somente anterior e ambos, alternáveis e persistentes | E3-T3 | pendente — **com anotação da E3-T2**: os três modos entram na superfície que a E3-T3 abrir, e é ela que decide o que fica persistido |
 | E3-T5 | Fechamento da E3 | Ao navegar, o antes/depois fica claro nos três modos | E3-T4 | pendente |
 
 **O que a E3-T1 deixou medido:** o diff deixou de ser uma faixa única e passou a ser **hunks**. Duas
@@ -424,6 +424,26 @@ documento tem o nome do arquivo real, igual à do arquivo real, porque o rótulo
 Como nada no produto abre estes documentos ainda, a prova no app usa o próprio caminho do editor para
 abrir uma URI — a superfície é o que a E3-T3 entrega.
 
+**O que a E3-T2 deixou para as próximas tarefas** (revisão de 13/09/2026, com o usuário). Cada ponto
+tem dono; nenhum deles é dúvida em aberto:
+
+| Ponto | Onde cai | O que ficou decidido |
+| --- | --- | --- |
+| Endereço do documento | E3-T3 em diante | Continua pelo **hash do conteúdo**. "O antes daquela alteração" seria o id do evento, e custaria uma leitura de evento por abertura, duas abas para o mesmo conteúdo e documento que morre quando o evento for podado |
+| Workspace multi-raiz | tarefa própria, se o caso aparecer | **Fora de escopo**: o produto assume a primeira pasta, como já faz no salto (`timelineView.ts:468-472`) e no gravador (`changeRecorderService.ts:389`). Fazer o evento guardar a pasta é mudança de contrato, e não entra de carona |
+| Binário e arquivo grande | E3-T3 | Nenhuma promessa nova: quem recusa binário é o serviço de texto do VS Code (`FILE_IS_BINARY`). O que falta é **medir** no arnês, antes de a decoração pintar linha |
+| Snapshot podado com a aba aberta | E5-T3 | A promessa fica escrita: aba aberta não é invalidada, e reabrir avisa que o snapshot não existe mais |
+| Abrir o diff | E3-T3 | Clique e **F5** continuam sendo o **salto** (provado nos T-0008/T-0010/T-0014); o diff abre por **ação explícita** — Paleta, menu da linha e uma tecla |
+| Rótulo do lado | E3-T3 | `alvo.ts (Before)` e `alvo.ts (After)`, pelo `label` do input do editor |
+| Atalhos à vista | **E8-T4**, tarefa nova | Lembrete estático dos atalhos num canto da janela; ver a linha na tabela da E8 |
+
+**Três consequências ficaram registradas sem decisão**, porque não são defeito e o consumidor é que
+decide: o `etag` de um documento é `mtime:size` com `mtime` zero (`fileService.ts:264`), então dois
+snapshots do mesmo tamanho compartilham o etag — inofensivo enquanto o conteúdo de um hash for imutável;
+a decodificação é a genérica do editor (BOM e `files.autoGuessEncoding`), e UTF-16 sem BOM não foi
+testado; e a restauração de janela volta com as abas dos documentos porque o hash continua no store,
+caminho que ninguém mediu.
+
 ### Etapa E4 — Ponte `.md` com o agente
 
 | ID | Tarefa | Entregável | Depende | Status |
@@ -441,7 +461,7 @@ abrir uma URI — a superfície é o que a E3-T3 entrega.
 | --- | --- | --- | --- | --- |
 | E5-T1 | Atualidade e histórico | Transições `current`/`history` na prática, avisos na UI e navegação segura | E4-T6 | pendente |
 | E5-T2 | Proposta desatualizada | Aviso quando o arquivo/linha de uma proposta `open` já mudou desde que ela foi escrita | E5-T1 | pendente |
-| E5-T3 | Retenção e agrupamento | Limite/limpeza do armazenamento, agrupamento por sessão na timeline e ruído de escritas em massa | E5-T2 | pendente |
+| E5-T3 | Retenção e agrupamento | Limite/limpeza do armazenamento, agrupamento por sessão na timeline e ruído de escritas em massa | E5-T2 | pendente — **com anotação da E3-T2**: quando o snapshot de um documento aberto for podado, a aba aberta não é invalidada e reabrir avisa que o snapshot não existe mais |
 
 ### Etapa E6 — Integração opcional por agente
 
@@ -467,6 +487,7 @@ dentro da etapa é a desta tabela.
 | E8-T1 | Inteligência de código para leitura | `typescript-language-features` de volta, com `typescript.validate.enable: false`, sem completion e sem formatação: ficam **F12** (definição), referências, símbolos e hover. Sem acusar erro — o visualizador não opina | — | feito (31 testes no módulo, 4 novos; manual T-0007 aprovado com 10 conferências. Uma armadilha apareceu no caminho: com a validação desligada o cliente nunca sai do estado "carregando projeto" e o F12 ia para o servidor sintático — resolvido com `typescript.tsserver.useSyntaxServer: 'never'`. Os comandos de escrita saíram da paleta pelas duas metades: lista de supressão no produto e remoção das cinco entradas no `package.json` da extensão) |
 | E8-T2 | Atalhos que não são do produto | Descartar as ligações de F2 (renomear), F5/Shift+F5/Ctrl+F5, F9/Shift+F9, F10, Shift+F11, Alt+F9, Alt+F8 e Ctrl+F9: escrever e executar saem da fileira; ler, navegar, comparar e propor ficam | E8-T1 | pendente |
 | E8-T3 | Comandos de apoio da timeline | `newest`/`oldest`, `focus` e `filterByActiveFile` na Paleta e no menu de contexto | E2-T5 | pendente |
+| E8-T4 | Atalhos visíveis | Um lembrete **estático** dos atalhos do produto — F5, Shift+F5 e F7 — num canto da janela: **um item na barra de status**, com o clique levando à linha do tempo, o tooltip explicando cada tecla e o texto tirado do registro de teclas do produto, e não copiado à mão. A alternativa — a dica fixa no corpo da timeline — fica para a SPEC decidir | E8-T2 | pendente |
 
 ```
 E1 → E2 → E3 → E4 → E5 → E6 → E7 → E8

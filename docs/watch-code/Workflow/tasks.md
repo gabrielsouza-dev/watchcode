@@ -78,3 +78,12 @@ Regra da E0: **baixo acoplamento apaga, alto acoplamento esconde.**
 ### E7 · Identidade visual
 
 - **E7-T1** Ícone e identidade visual — produto, Activity Bar e editor
+
+### E8 · Acabamento
+
+Nasceu da revisão da fileira de F1 a F12, feita com o usuário na E2-T3.
+
+- **E8-T1** Inteligência de código para leitura — F12, referências, símbolos e hover, sem acusar erro
+- **E8-T2** Atalhos que não são do produto — escrever e executar saem da fileira; ler, navegar e comparar ficam
+- **E8-T3** Comandos de apoio da timeline — `newest`/`oldest`, `focus` e `filterByActiveFile`
+- **E8-T4** Atalhos visíveis — lembrete estático dos atalhos do produto num canto da janela

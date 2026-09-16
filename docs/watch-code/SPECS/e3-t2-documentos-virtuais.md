@@ -314,4 +314,34 @@ existentes são a prova de que nada do que já funcionava mudou.
 | --- | --- | --- |
 | 1 | — | Nenhuma divergência do plano: as dez decisões dele foram seguidas, com os números e nomes fixados aqui |
 | 2 | O §4.2 declara os métodos que só recusam com os parâmetros da interface | Na implementação eles saem **sem parâmetro**, como no provedor somente leitura do core: a assinatura continua compatível com a interface, e o `tsc` acusa import de tipo não usado quando o parâmetro não existe. Nada do contrato muda — o que esses métodos fazem é lançar, e não ler o argumento |
+
+## 11. Revisão da tarefa, com o usuário (13/09/2026)
+
+Revisão feita depois de a E3-T2 fechar. Ela **não** muda nada do que foi entregue: fixa o que fica
+decidido para quem vem e registra o que ficou **sem** decisão, para não ser redescoberto no meio da
+implementação. O destino de cada ponto está anotado nas tarefas do guia.
+
+### 11.1 Decidido
+
+| # | Ponto | Decisão |
+| --- | --- | --- |
+| R1 | Endereço do documento | Continua pelo **hash do conteúdo** (D1 mantida). "O antes daquela alteração" seria o id do evento, e custaria uma leitura de evento por documento aberto, duas abas para o mesmo conteúdo vindo de eventos diferentes e documento que morre quando o evento for podado |
+| R2 | Workspace multi-raiz | **Fora de escopo**: o produto assume a primeira pasta, como já faz no salto (`timelineView.ts:468-472`) e no gravador (`changeRecorderService.ts:389`). Fazer o evento guardar a pasta é mudança de contrato e vira tarefa própria se o caso aparecer |
+| R3 | Binário e arquivo grande | **Nenhuma promessa nova**: quem recusa binário é o serviço de texto do VS Code (`textFileService.ts:242-243`, `FILE_IS_BINARY`). Falta **medir** no arnês, e a medição é da E3-T3 — antes de a decoração pintar linha |
+| R4 | Retenção | A promessa fica escrita agora e o mecanismo fica para a **E5-T3**: aba aberta não é invalidada, e reabrir avisa que o snapshot não existe mais |
+| R5 | Abrir o diff | Clique e **F5** continuam sendo o **salto** (provado nos T-0008, T-0010 e T-0014); o diff abre por **ação explícita** — Paleta, menu da linha e uma tecla —, na E3-T3 |
+| R6 | Rótulo do lado | `alvo.ts (Before)` e `alvo.ts (After)`, pelo `label` do input do editor, na E3-T3. Enquanto não existir, as abas do antes e do depois têm o mesmo nome do arquivo real |
+| R7 | Atalhos à vista | Vira a tarefa **E8-T4**: um lembrete estático dos atalhos do produto (F5, Shift+F5, F7) num canto da janela, com o clique levando à linha do tempo |
+
+### 11.2 Medido, sem decisão
+
+Consequências que não são defeito e cujo consumo é de outra tarefa:
+
+| # | Ponto | Consequência |
+| --- | --- | --- |
+| N1 | O `etag` de um documento é `mtime:size`, e o `mtime` daqui é 0 (`fileService.ts:264`) | Dois snapshots do mesmo tamanho compartilham o etag. É inofensivo enquanto o conteúdo de um hash for imutável, mas engana quem comparar etags de documentos diferentes |
+| N2 | Codificação | O documento é servido em bytes crus e a decodificação é a genérica do editor (BOM e `files.autoGuessEncoding`); UTF-16 sem BOM não foi testado |
+| N3 | Restauração de janela e hot exit | As abas dos documentos voltam no reload porque o hash continua no store; o caminho não foi medido |
+| N4 | Binário e arquivo grande | Não medidos no app — ver R3 |
+
 | 2 | — | Nenhuma decisão pendente de usuário |
