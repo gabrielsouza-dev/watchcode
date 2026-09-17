@@ -147,6 +147,7 @@ fonte que a leitura manual consultava.
 | T-0013 | a árvore de arquivos decorada, em seis fases: o arquivo que o agente tocou nasce com cor e ponto na própria árvore, o arquivo que ele nunca tocou não tem decoração, ir até a alteração apaga o ponto e mantém a cor, escrita nova no arquivo já visto faz o ponto voltar, a pasta sinaliza enquanto houver pendência embaixo dela, e cada linha desenhada mostra o mesmo estado que o ledger |
 | T-0015 | o cálculo de diff, em três fases: duas alterações distantes no mesmo arquivo viram **duas** faixas no evento e no detalhe da linha (e não o trecho inteiro entre elas), o salto cai na primeira faixa com só ela selecionada, e um bloco movido aparece como remoção mais inserção |
 | T-0016 | os documentos virtuais, em cinco fases: o app reabre no mesmo perfil pedindo o antes e o depois na linha de comando, cada documento desenha exatamente o snapshot do seu lado, digitar não altera nada e a aba não fica suja, e o hash que não existe é medido |
+| T-0017 | a segunda faixa da linha da timeline, em duas fases: **nenhuma faixa de texto pode ter mais conteúdo do que a própria caixa nem começar fora do item em que vive**, e a linha da alteração precisa mostrar os quatro trechos (pasta, linhas, hora e origem). É a conferência que pega o que a leitura de texto não pega — a entrelinha de 44 px dentro de uma caixa de 22 px que cortava o texto ao meio |
 
 O Playwright comanda a interface pelo depurador do próprio app: lê o texto, o ícone
 e o rótulo de acessibilidade do indicador, passa o mouse para pegar o tooltip, abre a

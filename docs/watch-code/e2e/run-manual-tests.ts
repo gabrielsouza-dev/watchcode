@@ -372,6 +372,28 @@ const DOCUMENT_MISSING_HASH = 'f'.repeat(40);
 const BEFORE_DOCUMENT_SCHEME = 'aih-before';
 const AFTER_DOCUMENT_SCHEME = 'aih-after';
 
+/**
+ * Arquivo de T-0017: doze linhas numa subpasta, com uma alteracao no meio.
+ *
+ * A pasta e a faixa de linhas existem por causa do que a conferencia mede: a segunda
+ * faixa da lista so tem os quatro trechos — pasta, linhas, hora e origem — quando a
+ * alteracao tem pasta e faixa de linhas.
+ */
+const CUT_TS_FILE = 'pasta-e2t9/cortado.ts';
+const CUT_TS_TOTAL = 12;
+
+/** Nome que a lista mostra: o do arquivo, sem a pasta. */
+const CUT_TS_NAME = 'cortado.ts';
+
+/** A linha unica que a escrita de fora altera. */
+const CUT_TS_CHANGED_LINE = 6;
+
+/** Conteudo no HEAD: o que o git devolve como o "antes" da alteracao. */
+const CUT_TS_HEAD_CONTENT = numberedLines(CUT_TS_TOTAL);
+
+/** Escrita de fora: a versao que gera o evento com faixa de linhas. */
+const CUT_TS_CONTENT = numberedLines(CUT_TS_TOTAL, [CUT_TS_CHANGED_LINE]);
+
 /** Abas da janela, da esquerda para a direita, e a que esta ativa. */
 const TAB_SELECTOR = '.tabs-container .tab';
 const ACTIVE_TAB_SELECTOR = '.tabs-container .tab.active';
@@ -495,6 +517,55 @@ async function timelineRowNames(page: Page): Promise<readonly string[]> {
 /** A segunda faixa de cada linha, na ordem. */
 async function timelineRowDetails(page: Page): Promise<readonly string[]> {
 	return await page.locator('.watch-code-timeline .watch-code-timeline-row .detail').allTextContents();
+}
+
+/** A geometria desenhada de uma linha da lista, em pixels. */
+interface ITimelineRowBox {
+	readonly name: string;
+	readonly detail: string;
+	readonly rowTop: number;
+	readonly rowHeight: number;
+	readonly detailTop: number;
+	readonly detailHeight: number;
+	/** Altura da caixa da faixa: o que cabe dentro dela. */
+	readonly detailClient: number;
+	/** Altura do conteudo da faixa: a entrelinha do texto. */
+	readonly detailScroll: number;
+	readonly nameTop: number;
+	readonly nameClient: number;
+	readonly nameScroll: number;
+}
+
+/**
+ * A geometria desenhada de cada linha da lista.
+ *
+ * O texto pode estar inteiro no DOM e mesmo assim sair cortado na tela: quem responde
+ * isso e a medida da caixa contra a do conteudo dela. Foi o que o T-0017 pegou — a lista
+ * escrevia a altura do item na entrelinha dele e as duas faixas do nosso item nasciam
+ * com 44 px de entrelinha dentro de uma caixa de 22 px.
+ */
+async function timelineRowBoxes(page: Page): Promise<readonly ITimelineRowBox[]> {
+	return await page.locator(TIMELINE_ROW_SELECTOR).evaluateAll(linhas => linhas.map(linha => {
+		const nome = linha.querySelector('.top .name') as HTMLElement | null;
+		const detalhe = linha.querySelector('.detail') as HTMLElement | null;
+		const item = linha.getBoundingClientRect();
+		const caixaNome = nome?.getBoundingClientRect();
+		const caixaDetalhe = detalhe?.getBoundingClientRect();
+
+		return {
+			name: nome?.textContent ?? '',
+			detail: detalhe?.textContent ?? '',
+			rowTop: Math.round(item.top),
+			rowHeight: Math.round(item.height),
+			detailTop: caixaDetalhe ? Math.round(caixaDetalhe.top) : -1,
+			detailHeight: caixaDetalhe ? Math.round(caixaDetalhe.height) : -1,
+			detailClient: detalhe?.clientHeight ?? -1,
+			detailScroll: detalhe?.scrollHeight ?? -1,
+			nameTop: caixaNome ? Math.round(caixaNome.top) : -1,
+			nameClient: nome?.clientHeight ?? -1,
+			nameScroll: nome?.scrollHeight ?? -1
+		};
+	}));
 }
 
 /**
@@ -3236,6 +3307,51 @@ let abriu = 'ja estava aberta';
 			await delay(1000);
 
 			t.check('medicao (nao reprova): o arquivo de verdade no mesmo editor', true, 'editor=' + JSON.stringify(await activeEditorName(session.page)) + ' margem=' + JSON.stringify(await visibleLines(session.page)) + ' desenhado=' + JSON.stringify(await drawnLines(session.page)));
+		}
+	},
+	{
+		id: 'T-0017',
+		title: 'A segunda faixa da linha da timeline aparece inteira',
+		// O arquivo entra no commit para a alteracao ter "antes": e o que faz a segunda
+		// faixa nascer com pasta, linhas, hora e origem — os quatro trechos.
+		prepare: workspace => commitWorkspace(workspace, [[CUT_TS_FILE, CUT_TS_HEAD_CONTENT]]),
+		run: async (session, t) => {
+			const page = session.page;
+
+			// A sonda de aquecimento garante a observacao viva antes de medir.
+			await session.ledger.waitForEvents(WARM_UP_FILE, 1, EVENT_TIMEOUT_MS);
+
+			// A lista so desenha linha com a view aberta, e ela nasce recolhida.
+			if (!await timelineExpanded(page)) {
+				await toggleTimelineView(page);
+			}
+
+			writeWorkspaceFile(session.paths.workspace, CUT_TS_FILE, CUT_TS_CONTENT);
+
+			await session.ledger.waitForEvents(CUT_TS_FILE, 1, EVENT_TIMEOUT_MS);
+			await waitUntilQuiet(session.ledger);
+
+			await waitForTimelineRow(page, CUT_TS_NAME);
+
+			const caixas = await timelineRowBoxes(page);
+
+			t.check('fase 1: a lista desenhou as alteracoes', caixas.length >= 2, 'linhas=' + JSON.stringify(caixas.map(caixa => caixa.name)));
+
+			// A conferencia da tarefa: faixa de texto nao pode ter mais conteudo do que a
+			// propria caixa, nem comecar acima do item em que vive.
+			const cortadas = caixas.filter(caixa => caixa.detailScroll > caixa.detailClient || caixa.nameScroll > caixa.nameClient);
+			const escapadas = caixas.filter(caixa => caixa.nameTop < caixa.rowTop || caixa.detailTop + caixa.detailHeight > caixa.rowTop + caixa.rowHeight);
+
+			t.check('fase 1: nenhuma faixa de texto sai cortada', cortadas.length === 0, 'cortadas=' + JSON.stringify(cortadas.map(caixa => caixa.name + ' (' + caixa.detailScroll + ' em ' + caixa.detailClient + ')')));
+			t.check('fase 1: nenhuma faixa escapa do proprio item', escapadas.length === 0, 'escapadas=' + JSON.stringify(escapadas.map(caixa => caixa.name + ' topo=' + caixa.nameTop + ' item=' + caixa.rowTop)));
+
+			// A alteracao do teste tem os quatro trechos da segunda faixa: e ela que separa
+			// uma faixa cortada de uma faixa curta demais para o corte ser notado.
+			const alvo = caixas.find(caixa => caixa.name === CUT_TS_NAME);
+
+			t.check('fase 2: a linha da alteracao tem os quatro trechos', alvo !== undefined && alvo.detail.includes('pasta-e2t9') && alvo.detail.includes('Disk') && /\d{2}:\d{2}/.test(alvo.detail), 'detalhe=' + JSON.stringify(alvo?.detail));
+
+			t.check('medicao (nao reprova): a geometria desenhada das linhas', true, JSON.stringify(caixas.slice(0, 3)));
 		}
 	},
 ];
