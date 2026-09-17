@@ -261,6 +261,11 @@ export class WatchCodeTimelineView extends ViewPane {
 				// Sem isto as setas andam com o foco e deixam a selecao para tras, e o
 				// salto nao acontece: quem navega pela lista e o teclado.
 				selectionNavigation: true,
+				// O item e desenhado a mao, com duas faixas de texto. Sem isto a lista
+				// escreve a altura do item na entrelinha dele (listView.ts:1073), e as
+				// duas faixas nascem com 44 px de entrelinha dentro de uma caixa de
+				// 22 px: o texto sai cortado ao meio.
+				setRowLineHeight: false,
 				overrideStyles: this.getLocationBasedColors().listOverrideStyles
 			}
 		) as WorkbenchList<TimelineRow>);
