@@ -191,11 +191,16 @@ suite('watchCode changeDocumentProvider', () => {
 		const conteudo = 'const a = 1;\n';
 		const hash = await guardar(conteudo);
 		const alvo = documento('after', hash);
+		// `writeFile` e opcional no `IFileSystemProvider`: o provedor declara a escrita
+		// justamente para recusa-la, e a assertiva diz isso antes de chamar.
+		const escrever = comoProvedor().writeFile;
+
+		assert.ok(escrever, 'o provedor tem de declarar a escrita para poder recusa-la');
 
 		assert.deepStrictEqual(
 			{
 				servico: await recusa(() => fileService.writeFile(alvo, VSBuffer.fromString('outro'))),
-				provedor: await codigoDe(() => comoProvedor().writeFile(alvo, VSBuffer.fromString('outro').buffer, {} as IFileWriteOptions)),
+				provedor: await codigoDe(() => escrever(alvo, VSBuffer.fromString('outro').buffer, {} as IFileWriteOptions)),
 				conteudo: (await fileService.readFile(alvo)).value.toString()
 			},
 			{ servico: true, provedor: 'NoPermissions', conteudo });

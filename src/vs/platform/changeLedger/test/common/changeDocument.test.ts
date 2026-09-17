@@ -106,8 +106,13 @@ suite('watchCode changeDocument', () => {
 	test('evento completo devolve o documento dos dois lados, cada um com o seu hash', () => {
 		const completo = evento();
 
+		const documentoDoAntes = changeDocumentOf(completo, 'before', ARQUIVO);
+		const documentoDoDepois = changeDocumentOf(completo, 'after', ARQUIVO);
+
+		// O `&&` mantem o tipo honesto: sem documento o valor esperado e o proprio undefined,
+		// e a assertiva mostra isso em vez de estourar na leitura do recurso.
 		assert.deepStrictEqual(
-			[changeDocumentOf(completo, 'before', ARQUIVO), changeDocumentOf(completo, 'after', ARQUIVO)].map(parseChangeDocument),
+			[documentoDoAntes && parseChangeDocument(documentoDoAntes), documentoDoDepois && parseChangeDocument(documentoDoDepois)],
 			[{ side: 'before', contentHash: HASH_ANTES }, { side: 'after', contentHash: HASH_DEPOIS }]);
 	});
 
