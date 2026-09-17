@@ -2142,3 +2142,120 @@ finais (a terceira aba e o arquivo de verdade) — onze no total.
 
 **aprovado.**
 
+## T-0017 — A segunda faixa da linha da timeline aparece inteira
+
+| Campo | Valor |
+| --- | --- |
+| Tarefa de origem | **E2-T9 — Linha da timeline sem texto cortado** |
+| Comando | `node --experimental-strip-types docs/watch-code/e2e/run-manual-tests.ts T-0017` |
+| Situação | aprovado |
+| Data de execução | 16/09/2026 |
+
+### Objetivo
+
+Provar que as **duas faixas** de texto de cada linha da timeline cabem dentro da linha: o nome do
+arquivo em cima, e a pasta, as linhas, a hora e a origem embaixo.
+
+O defeito foi encontrado pelo usuário, com o produto aberto num projeto de exemplo — não por um teste.
+O texto das duas faixas estava inteiro no DOM, então toda conferência que lê texto (o T-0005, o T-0012,
+o T-0013) passava. O que estava errado era a **geometria**: a lista escreve a altura do item na
+entrelinha dele (`listView.ts:1073`) e o nosso item é desenhado à mão, com duas faixas. Cada faixa
+nascia com 44 px de entrelinha dentro de uma caixa de 22 px, e a metade de baixo dos glifos ficava fora
+da caixa, escondida pelo `overflow: hidden`. Quem lê texto não vê isso; quem mede a caixa contra o
+conteúdo, vê.
+
+### Pré-condições
+
+- Build atualizado: `npm run transpile-client`.
+- Workspace e perfil isolados criados pelo próprio arnês, em `%TEMP%/watchcode-manual/t-0017`, com
+  repositório git e um commit inicial de `pasta-e2t9/cortado.ts` — é o `HEAD` que dá o "antes" do
+  evento, e sem ele a segunda faixa nasceria sem a faixa de linhas.
+- `cortado.ts` tem doze linhas, e a escrita de fora altera a linha **6**: é o que faz a segunda faixa
+  nascer com os quatro trechos.
+- A sonda de aquecimento (`aquecimento.ts`) garante a observação viva antes de medir.
+- A view da Timeline nasce recolhida, e lista recolhida não desenha linha nenhuma: o cenário abre a
+  view antes de medir.
+
+### Passos
+
+1. Abra a IDE no workspace observado, com perfil próprio, e confirme a observação pela sonda.
+2. Abra a view **Timeline**, no container do Explorer.
+3. Escreva de fora, como faria um agente, a versão de `pasta-e2t9/cortado.ts` com a linha 6 alterada, e
+   espere o ledger sossegar.
+4. Meça, em **toda** linha desenhada: a altura da caixa de cada faixa de texto contra a altura do
+   conteúdo dela, e o topo de cada faixa contra o topo e a base do item.
+5. Confira que a linha da alteração mostra os quatro trechos: pasta, linhas, hora e origem.
+6. Confira o log do perfil: nenhuma linha de erro ou aviso escrita pelo produto.
+
+### Resultado esperado
+
+- Passo 4: nenhuma faixa com mais conteúdo do que a própria caixa, e nenhuma começando acima do item.
+- Passo 5: `pasta-e2t9 · 6 · 21:18 · Disk`.
+- Passo 6: nenhuma linha `[error]` ou `[warning]` com o prefixo `[watchCode]` em `main.log` ou
+  `window1/renderer.log`.
+
+### Resultado obtido
+
+Executado pelo arnês no aplicativo, em perfil isolado, em 16/09/2026. As cinco conferências: as quatro
+do cenário e a varredura de log.
+
+```text
+T-0017 — A segunda faixa da linha da timeline aparece inteira
+      janela montada em 11s
+      ledger: C:\Users\Gabriel S\AppData\Local\Temp\watchcode-manual\t-0017\user-data\User\workspaceStorage\49b3b04f7b807c34a967e65ad24dceed\changeLedger
+      observacao de pe: a sonda foi registrada em 2026-09-17T00:18:54.313Z
+  ok    fase 1: a lista desenhou as alteracoes — linhas=["aquecimento.ts","cortado.ts"]
+  ok    fase 1: nenhuma faixa de texto sai cortada — cortadas=[]
+  ok    fase 1: nenhuma faixa escapa do proprio item — escapadas=[]
+  ok    fase 2: a linha da alteracao tem os quatro trechos — detalhe="pasta-e2t9 · 6 · 21:18 · Disk"
+  ok    medicao (nao reprova): a geometria desenhada das linhas — [{"name":"aquecimento.ts","detail":"1 · 21:18 · Disk","rowTop":736,"rowHeight":44,"detailTop":758,"detailHeight":18,"detailClient":18,"detailScroll":18,"nameTop":740,"nameClient":18,"nameScroll":18},{"name":"cortado.ts","detail":"pasta-e2t9 · 6 · 21:18 · Disk","rowTop":780,"rowHeight":44,"detailTop":802,"detailHeight":18,"detailClient":18,"detailScroll":18,"nameTop":784,"nameClient":18,"nameScroll":18}]
+  ok    log: o produto nao escreveu erro nem aviso — linhas=65 problemas=[]
+
+veredito: PASSOU (1 testes manuais)
+```
+
+### O defeito, medido na janela (antes e depois)
+
+A primeira medição não veio do arnês, e sim de uma sonda sobre o depurador do app aberto no projeto de
+exemplo — é ela que dá o "antes", porque o teste só passou a existir junto com a correção:
+
+| O que | Antes | Depois |
+| --- | --- | --- |
+| Entrelinha da faixa de detalhe | **44 px** | 18,2 px |
+| Altura da caixa da faixa | 22 px | 18 px |
+| Altura do conteúdo da faixa | **44 px** | 18 px |
+| Topo do nome contra o topo do item | **485 contra 496** — 11 px acima | 500 contra 496 |
+| Faixa de detalhe (item de 496 a 540) | 518 a 540, com os glifos cortados ao meio | 518 a 536, inteira |
+
+### Leitura linha a linha
+
+- A **fase 1** é a conferência da tarefa, e ela olha duas coisas: o conteúdo de cada faixa contra a
+  caixa dela (`detailScroll` contra `detailClient`) e o lugar da faixa dentro do item. Antes da
+  correção, a primeira reprovava em **todas** as linhas (44 em 22) e a segunda reprovava pelo nome, que
+  começava 11 px acima do próprio item por causa do conteúdo de 88 px centrado num item de 44 px.
+- A **fase 2** é a que separa uma faixa cortada de uma faixa curta demais para o corte ser notado. A
+  linha da alteração mostra `pasta-e2t9 · 6 · 21:18 · Disk` — os quatro trechos da segunda faixa: a
+  pasta, a faixa de linhas, a hora e a origem. Sem esta conferência, uma linha de detalhe curta poderia
+  passar por sorte.
+- A **medição** guarda a geometria depois da correção: caixa igual ao conteúdo (18 = 18) e o nome
+  começando **dentro** do item (740 num item que vai de 736 a 780).
+- A **varredura de log** leu 65 linhas do `main.log` e do `renderer.log` do perfil sem achar nada
+  escrito pelo produto.
+
+### Histórico de execução
+
+**A primeira execução do T-0017 já passou**, com as cinco conferências verdes. O que reprovava antes era
+o app: o defeito foi visto pelo usuário, medido por sonda e corrigido com **uma linha** na criação da
+lista (`setRowLineHeight: false`). Nada do cenário precisou ser ajustado depois da correção.
+
+**A primeira execução do arnês inteiro reprovou em dois cenários antigos** — T-0003 e T-0008 —, rodando
+com a janela de exploração aberta e em uso na mesma máquina. Os dois rodaram sozinhos em seguida, na
+mesma revisão e sem nenhuma linha de código mudada, e passaram: `veredito: PASSOU (2 testes manuais)`. É
+a instabilidade de máquina já registrada na E2-T8, onde o T-0010 falhou pelo mesmo motivo. **A segunda
+execução do arnês inteiro passou**, com o T-0017 entre os dezesete: `veredito: PASSOU (17 testes
+manuais)`.
+
+### Situação
+
+**aprovado.**
+
